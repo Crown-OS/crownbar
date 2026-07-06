@@ -369,6 +369,23 @@ dependencies = [
  "anyhow",
  "battery",
  "bluer",
+ "chrono",
+ "crownshell",
+ "env_logger",
+ "log",
+ "parley",
+ "tracing",
+ "vello",
+]
+
+[[package]]
+name = "crownshell"
+version = "0.1.0"
+source = "git+https://github.com/crown-os/crownshell#de4ab90020832ef486a17dde77b9a7910d55056f"
+dependencies = [
+ "anyhow",
+ "battery",
+ "bluer",
  "bytemuck",
  "calloop",
  "calloop-wayland-source",

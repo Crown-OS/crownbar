@@ -2,21 +2,18 @@ mod icons;
 mod pill;
 mod text;
 
-use anyhow::Result;
 use parley::{FontContext, LayoutContext};
 use vello::{
-    Scene,
     kurbo::{Affine, Rect},
     peniko::{Brush, Color, Fill},
+    Scene,
 };
 
 use crate::{
-    renderer::Renderer,
     theme::THEME,
     widgets::{Icon, WidgetRegistry, WidgetSlot},
 };
 
-/// Inner padding between the icon and the trailing label inside a pill.
 const ICON_LABEL_GAP: f32 = 6.0;
 
 struct Measured {
@@ -25,31 +22,21 @@ struct Measured {
     slot: WidgetSlot,
 }
 
-pub struct Ui {
-    renderer: Renderer,
-    scene: Scene,
+pub struct BarPainter {
     font_ctx: FontContext,
     layout_ctx: LayoutContext<Brush>,
 }
 
-impl Ui {
-    pub fn new(renderer: Renderer) -> Result<Self> {
-        Ok(Self {
-            renderer,
-            scene: Scene::new(),
+impl BarPainter {
+    pub fn new() -> Self {
+        Self {
             font_ctx: FontContext::new(),
             layout_ctx: LayoutContext::new(),
-        })
+        }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.renderer.resize(width, height);
-    }
-
-    /// Measure each widget, place into its slot, write bounds back to the
-    /// registry so the window can hit-test pointer events.
-    pub fn layout_widgets(&mut self, registry: &mut WidgetRegistry) {
-        let (surface_w, surface_h) = self.renderer.surface_size();
+    pub fn layout_widgets(&mut self, registry: &mut WidgetRegistry, size: (u32, u32)) {
+        let (surface_w, surface_h) = size;
         let width = surface_w as f32;
         let height = surface_h as f32;
         let pill_h = (height - 2.0 * THEME.pill_pad_y).max(0.0);
@@ -94,25 +81,34 @@ impl Ui {
         place_slot(&measured, WidgetSlot::Left, registry, pill_y, pill_h, |_| {
             THEME.bar_pad_x
         });
-        place_slot(&measured, WidgetSlot::Center, registry, pill_y, pill_h, |total| {
-            (width - total) * 0.5
-        });
-        place_slot(&measured, WidgetSlot::Right, registry, pill_y, pill_h, |total| {
-            width - THEME.bar_pad_x - total
-        });
+        place_slot(
+            &measured,
+            WidgetSlot::Center,
+            registry,
+            pill_y,
+            pill_h,
+            |total| (width - total) * 0.5,
+        );
+        place_slot(
+            &measured,
+            WidgetSlot::Right,
+            registry,
+            pill_y,
+            pill_h,
+            |total| width - THEME.bar_pad_x - total,
+        );
     }
 
-    pub fn render(&mut self, registry: &WidgetRegistry) -> Result<()> {
-        let (width, height) = self.renderer.surface_size();
-        self.build_scene(registry, width as f32, height as f32);
-        self.renderer.render(&self.scene)
-    }
+    pub fn build_scene(
+        &mut self,
+        scene: &mut Scene,
+        registry: &WidgetRegistry,
+        size: (u32, u32),
+    ) {
+        let width = size.0 as f32;
+        let height = size.1 as f32;
 
-    fn build_scene(&mut self, registry: &WidgetRegistry, width: f32, height: f32) {
-        self.scene.reset();
-
-        // Bar strip tint — sits on top of the compositor's blur region.
-        self.scene.fill(
+        scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
             THEME.bar_tint,
@@ -125,16 +121,7 @@ impl Ui {
                 continue;
             };
             let hover = rt.hover.position.clamp(0.0, 1.0);
-            pill::draw(
-                &mut self.scene,
-                x,
-                y,
-                w,
-                h,
-                hover,
-                THEME.pill_hover,
-                THEME.pill_rim,
-            );
+            pill::draw(scene, x, y, w, h, hover, THEME.pill_hover, THEME.pill_rim);
 
             let icon = rt.widget.icon();
             let label = rt.widget.label();
@@ -145,7 +132,7 @@ impl Ui {
             let mut cursor = x + THEME.pill_pad_x;
             if !matches!(icon, Icon::None) {
                 let icon_cx = cursor + icons::ICON_BOX * 0.5;
-                icons::draw(&mut self.scene, icon, icon_cx, cy, fg);
+                icons::draw(scene, icon, icon_cx, cy, fg);
                 cursor += icons::ICON_BOX;
                 if !label.is_empty() {
                     cursor += ICON_LABEL_GAP;
@@ -153,7 +140,7 @@ impl Ui {
             }
             if !label.is_empty() {
                 text::draw_text(
-                    &mut self.scene,
+                    scene,
                     &mut self.font_ctx,
                     &mut self.layout_ctx,
                     &label,
@@ -166,6 +153,12 @@ impl Ui {
         }
 
         let _ = height;
+    }
+}
+
+impl Default for BarPainter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

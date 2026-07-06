@@ -1,33 +1,24 @@
 mod animation;
-mod app;
+mod bar_handler;
 mod config;
-mod renderer;
 mod theme;
 mod ui;
 mod util;
-mod wayland;
 mod widgets;
-mod window;
 
-use anyhow::{anyhow, Result};
-use calloop::EventLoop;
-use calloop_wayland_source::WaylandSource;
+use anyhow::Result;
+use crownshell::{Anchor, KeyboardInteractivity, Layer, WindowConfig};
 
-use renderer::Renderer;
-use ui::Ui;
+use bar_handler::BarHandler;
+use config::{BAR_HEIGHT, BAR_NAMESPACE};
 use widgets::{
     battery::BatteryWidget, bluetooth::BluetoothWidget, brightness::BrightnessWidget,
     clock::ClockWidget, layout::LayoutWidget, volume::VolumeWidget, wifi::WifiWidget, BarWidget,
     WidgetRegistry,
 };
-use window::Window;
 
 pub fn app() -> Result<()> {
-    let mut event_loop: EventLoop<'static, Window> = EventLoop::try_new()?;
-    let loop_handle = event_loop.handle();
-
-    // Right-slot widgets render in registration order, left-to-right. This
-    // ordering mirrors the conventional "status indicators → clock" layout.
+    // Right-slot widgets render in registration order, left-to-right.
     let mut widgets = WidgetRegistry::new();
     widgets.register(Box::new(LayoutWidget::new(false)) as Box<dyn BarWidget>);
     if let Some(w) = BluetoothWidget::try_new() {
@@ -47,28 +38,18 @@ pub fn app() -> Result<()> {
     }
     widgets.register(Box::new(ClockWidget::new()));
 
-    let (connection, mut event_queue, mut window) = Window::new(loop_handle.clone(), widgets)?;
-
-    while window.first_configure {
-        event_queue.blocking_dispatch(&mut window)?;
-    }
-
-    let renderer = Renderer::new(&connection, &window)?;
-    window.ui = Some(Ui::new(renderer)?);
-    window.apply_blur_region();
-    window.paint();
-    window.arm_tick_timer();
-
-    WaylandSource::new(connection, event_queue)
-        .insert(loop_handle.clone())
-        .map_err(|e| anyhow!("register wayland source: {}", e.error))?;
-
-    let signal = event_loop.get_signal();
-    event_loop.run(None, &mut window, move |window| {
-        if window.exit {
-            signal.stop();
-        }
-    })?;
-
-    Ok(())
+    crownshell::run(move |app| {
+        let config = WindowConfig {
+            namespace: BAR_NAMESPACE.to_string(),
+            layer: Layer::Top,
+            anchor: Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
+            size: (0, BAR_HEIGHT),
+            exclusive_zone: BAR_HEIGHT as i32,
+            keyboard_interactivity: KeyboardInteractivity::None,
+            blur: true,
+            ..Default::default()
+        };
+        app.create_window(config, BarHandler::new(widgets));
+        Ok(())
+    })
 }
