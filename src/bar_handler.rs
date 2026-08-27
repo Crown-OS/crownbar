@@ -1,10 +1,6 @@
 use crownshell::{Scene, SurfaceCtx, SurfaceHandler};
 
-use crate::{
-    animation::Clock,
-    ui::BarPainter,
-    widgets::WidgetRegistry,
-};
+use crate::{animation::Clock, ui::BarPainter, widgets::WidgetRegistry};
 
 pub struct BarHandler {
     widgets: WidgetRegistry,
@@ -24,8 +20,9 @@ impl BarHandler {
 
 impl SurfaceHandler for BarHandler {
     fn paint(&mut self, scene: &mut Scene, ctx: SurfaceCtx<'_>) {
-        self.painter.layout_widgets(&mut self.widgets, ctx.size);
-        self.painter.build_scene(scene, &self.widgets, ctx.size);
+        let SurfaceCtx { size, text, .. } = ctx;
+        self.painter.layout_widgets(&mut self.widgets, size, text);
+        self.painter.build_scene(scene, &self.widgets, size, text);
     }
 
     fn on_pointer_enter(&mut self, x: f64, y: f64, _ctx: SurfaceCtx<'_>) -> bool {

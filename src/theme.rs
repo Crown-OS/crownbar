@@ -35,7 +35,7 @@ pub struct Theme {
 impl Theme {
     pub const fn default() -> Self {
         Self {
-            bar_tint: Color::from_rgba8(0, 0, 0, 90),
+            bar_tint: Color::from_rgba8(0, 0, 0, 0),
             pill_idle: Color::from_rgba8(255, 255, 255, 0),
             pill_hover: Color::from_rgba8(255, 255, 255, 28),
             pill_rim: Color::from_rgba8(255, 255, 255, 38),
@@ -44,7 +44,7 @@ impl Theme {
             bar_pad_y: 0.0,
             bar_pad_x: 12.0,
             pill_pad_x: 12.0,
-            pill_pad_y: 6.0,
+            pill_pad_y: 0.0,
             widget_gap: 6.0,
             font_size: 14.0,
         }

@@ -1,12 +1,10 @@
 use chrono::{DateTime, Local, Timelike};
 
-use crate::widgets::{BarWidget, Icon, WidgetSlot};
+use crate::widgets::{BarWidget, WidgetSlot};
 
 pub struct ClockWidget {
     label: String,
-    /// Hours-of-day ∈ [0, 1), updated each tick. Drives the icon hand.
     hours_norm: f32,
-    /// Minutes-of-hour ∈ [0, 1), updated each tick. Drives the icon hand.
     minutes_norm: f32,
 }
 
@@ -49,14 +47,7 @@ impl BarWidget for ClockWidget {
     }
 
     fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
-    }
-
-    fn icon(&self) -> Icon {
-        Icon::Clock {
-            hours: self.hours_norm,
-            minutes: self.minutes_norm,
-        }
+        WidgetSlot::Left
     }
 
     fn update(&mut self) -> bool {

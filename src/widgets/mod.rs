@@ -27,7 +27,6 @@ pub enum WidgetSlot {
 #[derive(Debug, Clone, Copy)]
 pub enum Icon {
     None,
-    Clock { hours: f32, minutes: f32 },
     Wifi { strength: f32 },
     Bluetooth { on: f32 },
     Volume { level: f32, muted: f32 },

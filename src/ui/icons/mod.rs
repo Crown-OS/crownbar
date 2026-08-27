@@ -9,20 +9,15 @@
 mod battery;
 mod bluetooth;
 mod brightness;
-mod clock;
 mod layout;
 mod volume;
 mod wifi;
 
-use vello::{
-    Scene,
-    kurbo::Rect,
-    peniko::Color,
-};
+use vello::{kurbo::Rect, peniko::Color, Scene};
 
 use crate::widgets::Icon;
 
-pub const ICON_BOX: f32 = 18.0;
+pub const ICON_BOX: f32 = 22.0;
 
 /// Dispatch + draw one icon, centered at (cx, cy). `fg` is the foreground
 /// stroke/fill color; the icon picks accent colors from it.
@@ -36,7 +31,6 @@ pub fn draw(scene: &mut Scene, icon: Icon, cx: f32, cy: f32, fg: Color) {
     );
     match icon {
         Icon::None => {}
-        Icon::Clock { hours, minutes } => clock::draw(scene, bounds, fg, hours, minutes),
         Icon::Wifi { strength } => wifi::draw(scene, bounds, fg, strength),
         Icon::Bluetooth { on } => bluetooth::draw(scene, bounds, fg, on),
         Icon::Volume { level, muted } => volume::draw(scene, bounds, fg, level, muted),

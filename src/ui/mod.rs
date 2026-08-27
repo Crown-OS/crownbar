@@ -1,11 +1,10 @@
 mod icons;
 mod pill;
-mod text;
 
-use parley::{FontContext, LayoutContext};
+use crownshell::{Text, TextContext, TextStyle};
 use vello::{
     kurbo::{Affine, Rect},
-    peniko::{Brush, Color, Fill},
+    peniko::{Color, Fill},
     Scene,
 };
 
@@ -15,6 +14,7 @@ use crate::{
 };
 
 const ICON_LABEL_GAP: f32 = 6.0;
+const FONT_FAMILY: &str = "system-ui";
 
 struct Measured {
     idx: usize,
@@ -23,24 +23,27 @@ struct Measured {
 }
 
 pub struct BarPainter {
-    font_ctx: FontContext,
-    layout_ctx: LayoutContext<Brush>,
+    labels: Vec<Text>,
 }
 
 impl BarPainter {
     pub fn new() -> Self {
-        Self {
-            font_ctx: FontContext::new(),
-            layout_ctx: LayoutContext::new(),
-        }
+        Self { labels: Vec::new() }
     }
 
-    pub fn layout_widgets(&mut self, registry: &mut WidgetRegistry, size: (u32, u32)) {
+    pub fn layout_widgets(
+        &mut self,
+        registry: &mut WidgetRegistry,
+        size: (u32, u32),
+        tcx: &mut TextContext,
+    ) {
         let (surface_w, surface_h) = size;
         let width = surface_w as f32;
         let height = surface_h as f32;
-        let pill_h = (height - 2.0 * THEME.pill_pad_y).max(0.0);
+        let pill_h = (height + THEME.pill_pad_y).max(0.0);
         let pill_y = THEME.pill_pad_y;
+
+        self.sync_labels(registry);
 
         let mut measured: Vec<Measured> = Vec::with_capacity(registry.widgets.len());
         for (i, rt) in registry.widgets.iter().enumerate() {
@@ -52,12 +55,9 @@ impl BarPainter {
             let text_w = if label.is_empty() {
                 0.0
             } else {
-                text::measure_text(
-                    &mut self.font_ctx,
-                    &mut self.layout_ctx,
-                    &label,
-                    THEME.font_size,
-                )
+                let text = &mut self.labels[i];
+                text.set_text(&label);
+                text.width(tcx) as f32
             };
             let mut inner = 0.0;
             if has_icon {
@@ -78,9 +78,14 @@ impl BarPainter {
             rt.bounds = None;
         }
 
-        place_slot(&measured, WidgetSlot::Left, registry, pill_y, pill_h, |_| {
-            THEME.bar_pad_x
-        });
+        place_slot(
+            &measured,
+            WidgetSlot::Left,
+            registry,
+            pill_y,
+            pill_h,
+            |_| THEME.bar_pad_x,
+        );
         place_slot(
             &measured,
             WidgetSlot::Center,
@@ -104,6 +109,7 @@ impl BarPainter {
         scene: &mut Scene,
         registry: &WidgetRegistry,
         size: (u32, u32),
+        tcx: &mut TextContext,
     ) {
         let width = size.0 as f32;
         let height = size.1 as f32;
@@ -116,7 +122,7 @@ impl BarPainter {
             &Rect::new(0.0, 0.0, width as f64, height as f64),
         );
 
-        for rt in registry.widgets.iter() {
+        for (i, rt) in registry.widgets.iter().enumerate() {
             let Some((x, y, w, h)) = rt.bounds else {
                 continue;
             };
@@ -125,9 +131,8 @@ impl BarPainter {
 
             let icon = rt.widget.icon();
             let label = rt.widget.label();
-            let lift = hover * 0.5;
             let fg = lerp_color(THEME.fg_muted, THEME.fg, hover);
-            let cy = y + h * 0.5 - lift;
+            let cy = y + h * 0.5;
 
             let mut cursor = x + THEME.pill_pad_x;
             if !matches!(icon, Icon::None) {
@@ -139,20 +144,22 @@ impl BarPainter {
                 }
             }
             if !label.is_empty() {
-                text::draw_text(
-                    scene,
-                    &mut self.font_ctx,
-                    &mut self.layout_ctx,
-                    &label,
-                    cursor,
-                    cy,
-                    THEME.font_size,
-                    fg,
-                );
+                let text = &mut self.labels[i];
+                text.set_style(label_style(fg));
+                // `Text` draws from its top-left corner; center it on `cy`.
+                let top = cy as f64 - text.height(tcx) * 0.5;
+                text.draw(tcx, scene, (cursor as f64, top));
             }
         }
+    }
 
-        let _ = height;
+    /// Keep one retained `Text` per widget index.
+    fn sync_labels(&mut self, registry: &WidgetRegistry) {
+        while self.labels.len() < registry.widgets.len() {
+            self.labels
+                .push(Text::styled("", label_style(THEME.fg_muted)));
+        }
+        self.labels.truncate(registry.widgets.len());
     }
 }
 
@@ -160,6 +167,12 @@ impl Default for BarPainter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn label_style(color: Color) -> TextStyle {
+    TextStyle::new(FONT_FAMILY, THEME.font_size)
+        .with_line_height(1.2)
+        .with_color(color)
 }
 
 fn place_slot<F: Fn(f32) -> f32>(

@@ -7,7 +7,8 @@ mod util;
 mod widgets;
 
 use anyhow::Result;
-use crownshell::{Anchor, KeyboardInteractivity, Layer, WindowConfig};
+use crownos_config::{schema::appearance, subscribe_key};
+use crownshell::{Anchor, KeyboardInteractivity, Layer, SurfaceHandler, WindowConfig};
 
 use bar_handler::BarHandler;
 use config::{BAR_HEIGHT, BAR_NAMESPACE};
@@ -16,6 +17,8 @@ use widgets::{
     clock::ClockWidget, layout::LayoutWidget, volume::VolumeWidget, wifi::WifiWidget, BarWidget,
     WidgetRegistry,
 };
+
+use crate::config::BarConfig;
 
 pub fn app() -> Result<()> {
     // Right-slot widgets render in registration order, left-to-right.
@@ -39,17 +42,23 @@ pub fn app() -> Result<()> {
     widgets.register(Box::new(ClockWidget::new()));
 
     crownshell::run(move |app| {
-        let config = WindowConfig {
+        let bar_config = BarConfig::load();
+
+        let window_config = WindowConfig {
             namespace: BAR_NAMESPACE.to_string(),
             layer: Layer::Top,
             anchor: Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
-            size: (0, BAR_HEIGHT),
+            size: (0, bar_config.bar_height),
             exclusive_zone: BAR_HEIGHT as i32,
             keyboard_interactivity: KeyboardInteractivity::None,
             blur: true,
             ..Default::default()
         };
-        app.create_window(config, BarHandler::new(widgets));
+        let bar = BarHandler::new(widgets);
+        // subscribe_key(appearance::BarHeight, |config| {
+        //     app.flush_redraws();
+        // });
+        app.create_window(window_config, bar);
         Ok(())
     })
 }

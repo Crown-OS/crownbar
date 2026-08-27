@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 crownshell = { git = "https://github.com/crown-os/crownshell" }
+crownos-config = { git = "https://github.com/crown-os/crownos-config" }
 
 anyhow = "1.0.102"
 battery = "0.7.8"
@@ -14,10 +15,13 @@ log = "0.4"
 env_logger = "0.11"
 
 vello = "0.9.0"
-parley = "0.6"
 bluer = { version = "0.17.4", features = ["bluetoothd", "id", "rfcomm"] }
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# Local crownshell while the premultiplied-alpha fix is unpushed.
+[patch."https://github.com/crown-os/crownshell"]
+crownshell = { path = "../crownshell" }
