@@ -57,7 +57,6 @@ impl Spring {
         (self.position - self.target).abs() < EPSILON_POS && self.velocity.abs() < EPSILON_VEL
     }
 
-    #[allow(dead_code)]
     pub fn snap_to_target(&mut self) {
         self.position = self.target;
         self.velocity = 0.0;

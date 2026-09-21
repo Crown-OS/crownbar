@@ -1,63 +1,90 @@
-//! Volume widget. Polls `wpctl` (PipeWire) for the default sink, falls back
-//! to `pactl` (PulseAudio). We avoid linking libpulse/libpipewire — running
-//! a short subprocess every 2 seconds is cheap and works on any audio stack
-//! that ships either tool, which is essentially every modern desktop.
+//! Volume widget and the Sound panel behind it.
+//!
+//! Everything comes from [`crate::services::audio`], which follows PipeWire's
+//! own `Props` events — so the level is right the instant anything changes it,
+//! and the slider writes continuously instead of only on release.
 
-use std::process::Command;
+use std::sync::Arc;
 
 use crate::{
     animation::Spring,
-    util::poll::PollGate,
-    widgets::{BarWidget, Icon, WidgetSlot},
+    services::{
+        audio::{AudioCommand, AudioState, Device, DeviceKind, MAX_LEVEL},
+        link::{self, SettingsPane},
+        Services,
+    },
+    widgets::{
+        popup::{Item, PanelBuilder, Row},
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WidgetSlot,
+    },
 };
 
-const POLL_PERIOD_TICKS: u32 = 2;
+const PANEL_WIDTH: f32 = 300.0;
 
 pub struct VolumeWidget {
-    backend: Backend,
-    muted: bool,
+    audio: Arc<AudioState>,
     level: Spring,
-    muted_anim: Spring,
-    gate: PollGate,
+    muted: Spring,
+    targets: Vec<Option<Target>>,
 }
 
-#[derive(Copy, Clone)]
-enum Backend {
-    Wpctl,
-    Pactl,
+/// What a clickable or draggable row of the Sound panel stands for.
+#[derive(Clone, Copy)]
+enum Target {
+    OutputLevel,
+    InputLevel,
+    Output(usize),
+    Input(usize),
+    Settings,
 }
 
 impl VolumeWidget {
-    pub fn try_new() -> Option<Self> {
-        let backend = detect_backend()?;
-        let mut w = Self {
-            backend,
-            muted: false,
+    pub fn new() -> Self {
+        Self {
+            audio: Arc::default(),
             level: Spring::new(0.0),
-            muted_anim: Spring::new(0.0),
-            gate: PollGate::new(POLL_PERIOD_TICKS),
-        };
-        w.refresh();
-        w.level.position = w.level.target;
-        w.muted_anim.position = w.muted_anim.target;
-        Some(w)
+            muted: Spring::new(0.0),
+            targets: Vec::new(),
+        }
     }
 
-    fn refresh(&mut self) -> bool {
-        let reading = match self.backend {
-            Backend::Wpctl => read_wpctl(),
-            Backend::Pactl => read_pactl(),
-        };
-        let Some(r) = reading else {
-            return false;
-        };
-        let next_muted = r.muted;
-        let next_level = r.volume as f32 / 100.0;
-        let changed = (next_level - self.level.target).abs() > 0.005 || next_muted != self.muted;
-        self.muted = next_muted;
-        self.level.set_target(next_level);
-        self.muted_anim.set_target(if next_muted { 1.0 } else { 0.0 });
-        changed
+    fn retarget(&mut self) {
+        let volume = self.audio.output_volume();
+        self.level.set_target(volume.level);
+        self.muted.set_target(if volume.muted { 1.0 } else { 0.0 });
+    }
+
+    /// The device the slider is controlling, for the glyph beside it.
+    fn output_rune(&self) -> Rune {
+        self.audio
+            .default_output()
+            .map(|device| rune_for(device.kind))
+            .unwrap_or(Rune::Speaker)
+    }
+
+    fn device_rows(
+        panel: &mut PanelBuilder<Target>,
+        title: &str,
+        devices: &[Device],
+        target: impl Fn(usize) -> Target,
+    ) {
+        if devices.is_empty() {
+            return;
+        }
+        panel.row(Row::Separator);
+        panel.row(Row::Section {
+            title: title.into(),
+            chevron: false,
+        });
+        for (index, device) in devices.iter().enumerate() {
+            panel.action(
+                Item::new(&device.description)
+                    .icon(Icon::Rune(rune_for(device.kind)))
+                    .selected(device.default)
+                    .row(),
+                target(index),
+            );
+        }
     }
 }
 
@@ -70,123 +97,168 @@ impl BarWidget for VolumeWidget {
         WidgetSlot::Right
     }
 
+    fn visible(&self) -> bool {
+        self.audio.availability.usable()
+    }
+
     fn icon(&self) -> Icon {
         Icon::Volume {
             level: self.level.position,
-            muted: self.muted_anim.position,
+            muted: self.muted.position,
         }
     }
 
-    fn update(&mut self) -> bool {
-        if !self.gate.should_run() {
+    fn sync(&mut self, services: &Services) -> bool {
+        let audio = services.audio.read();
+        if Arc::ptr_eq(&audio, &self.audio) {
             return false;
         }
-        self.refresh()
+        self.audio = audio;
+        self.retarget();
+        true
     }
 
-    fn on_click(&mut self) -> bool {
-        // Click toggles mute via the same backend we read from.
-        let new_muted = !self.muted;
-        let ok = match self.backend {
-            Backend::Wpctl => std::process::Command::new("wpctl")
-                .args([
-                    "set-mute",
-                    "@DEFAULT_AUDIO_SINK@",
-                    if new_muted { "1" } else { "0" },
-                ])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false),
-            Backend::Pactl => std::process::Command::new("pactl")
-                .args([
-                    "set-sink-mute",
-                    "@DEFAULT_SINK@",
-                    if new_muted { "1" } else { "0" },
-                ])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false),
-        };
-        if !ok {
-            // Even if the system call fails, animate the visual to give
-            // immediate feedback; next poll will reconcile reality.
-            log::warn!("volume mute toggle did not complete");
+    fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
+        let mut panel = PanelBuilder::new(PANEL_WIDTH);
+        panel.row(Row::Header {
+            title: "Sound".into(),
+            toggle: None,
+        });
+
+        let output = self.audio.output_volume();
+        panel.action(
+            Row::Slider {
+                icon: Icon::Rune(self.output_rune()),
+                value: if output.muted { 0.0 } else { output.level },
+            },
+            Target::OutputLevel,
+        );
+        Self::device_rows(&mut panel, "Output", &self.audio.outputs, Target::Output);
+
+        if !self.audio.inputs.is_empty() {
+            panel.row(Row::Separator);
+            panel.row(Row::Section {
+                title: "Input".into(),
+                chevron: false,
+            });
+            let input = self.audio.input_volume();
+            panel.action(
+                Row::Slider {
+                    icon: Icon::Rune(Rune::Microphone),
+                    value: if input.muted { 0.0 } else { input.level },
+                },
+                Target::InputLevel,
+            );
+            for (index, device) in self.audio.inputs.iter().enumerate() {
+                panel.action(
+                    Item::new(&device.description)
+                        .icon(Icon::Rune(rune_for(device.kind)))
+                        .selected(device.default)
+                        .row(),
+                    Target::Input(index),
+                );
+            }
+            // No level meter is possible — pipewire-native has no stream API —
+            // but who is holding the microphone is the question people
+            // actually ask of a bar, and the registry answers it for free.
+            let users = self.audio.microphone_users();
+            if !users.is_empty() {
+                panel.row(
+                    Item::new(format!("In use by {}", users.join(", ")))
+                        .plain()
+                        .enabled(false)
+                        .row(),
+                );
+            }
         }
-        self.muted = new_muted;
-        self.muted_anim
-            .set_target(if new_muted { 1.0 } else { 0.0 });
-        true
+
+        panel.row(Row::Separator);
+        panel.action(
+            Row::Action {
+                label: "Sound Settings…".into(),
+            },
+            Target::Settings,
+        );
+
+        let (spec, targets) = panel.finish();
+        self.targets = targets;
+        Some(spec)
+    }
+
+    fn on_popup(&mut self, action: PopupAction, services: &Services) -> AfterAction {
+        let target = match action {
+            PopupAction::Slide { row, .. } | PopupAction::Activate { row } => {
+                self.targets.get(row).copied().flatten()
+            }
+            PopupAction::Toggle { .. } => None,
+        };
+        let Some(target) = target else {
+            return AfterAction::Stay;
+        };
+
+        match (target, action) {
+            // A write is a socket message now, not a subprocess, so the drag
+            // is sent as it happens rather than held back until release.
+            (Target::OutputLevel, PopupAction::Slide { value, .. }) => {
+                let level = value.clamp(0.0, MAX_LEVEL);
+                self.level.set_target(level);
+                self.level.snap_to_target();
+                if self.audio.output_volume().muted && level > 0.0 {
+                    services.audio.send(AudioCommand::SetOutputMuted(false));
+                }
+                services.audio.send(AudioCommand::SetOutputVolume(level));
+                AfterAction::Stay
+            }
+            (Target::InputLevel, PopupAction::Slide { value, .. }) => {
+                services
+                    .audio
+                    .send(AudioCommand::SetInputVolume(value.clamp(0.0, MAX_LEVEL)));
+                AfterAction::Stay
+            }
+            (Target::Output(index), PopupAction::Activate { .. }) => {
+                if let Some(device) = self.audio.outputs.get(index) {
+                    services
+                        .audio
+                        .send(AudioCommand::SetDefaultOutput(device.name.clone()));
+                }
+                AfterAction::Close
+            }
+            (Target::Input(index), PopupAction::Activate { .. }) => {
+                if let Some(device) = self.audio.inputs.get(index) {
+                    services
+                        .audio
+                        .send(AudioCommand::SetDefaultInput(device.name.clone()));
+                }
+                AfterAction::Close
+            }
+            (Target::Settings, PopupAction::Activate { .. }) => {
+                if !link::open(SettingsPane::Sound) {
+                    log::info!("no sound settings application installed");
+                }
+                AfterAction::Close
+            }
+            _ => AfterAction::Stay,
+        }
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {
         let mut alive = false;
-        for s in [&mut self.level, &mut self.muted_anim] {
-            if !s.at_rest() {
-                s.step(dt);
-                if !s.at_rest() {
-                    alive = true;
-                }
+        for spring in [&mut self.level, &mut self.muted] {
+            if !spring.at_rest() {
+                spring.step(dt);
+                alive |= !spring.at_rest();
             }
         }
         alive
     }
 }
 
-struct VolReading {
-    volume: u8,
-    muted: bool,
-}
-
-fn detect_backend() -> Option<Backend> {
-    if Command::new("wpctl").arg("--version").output().is_ok() {
-        return Some(Backend::Wpctl);
+fn rune_for(kind: DeviceKind) -> Rune {
+    match kind {
+        DeviceKind::Headphones | DeviceKind::Headset => Rune::Headphones,
+        DeviceKind::Bluetooth => Rune::Bluetooth,
+        DeviceKind::Display => Rune::Display,
+        DeviceKind::Microphone | DeviceKind::Webcam => Rune::Microphone,
+        DeviceKind::Speakers | DeviceKind::Unknown => Rune::Laptop,
     }
-    if Command::new("pactl").arg("--version").output().is_ok() {
-        return Some(Backend::Pactl);
-    }
-    None
-}
-
-/// `wpctl get-volume @DEFAULT_AUDIO_SINK@` →
-/// "Volume: 0.42" or "Volume: 0.42 [MUTED]"
-fn read_wpctl() -> Option<VolReading> {
-    let out = Command::new("wpctl")
-        .args(["get-volume", "@DEFAULT_AUDIO_SINK@"])
-        .output()
-        .ok()?;
-    let s = String::from_utf8(out.stdout).ok()?;
-    let muted = s.contains("MUTED");
-    let value: f32 = s
-        .split_whitespace()
-        .find_map(|tok| tok.parse::<f32>().ok())?;
-    Some(VolReading {
-        volume: (value * 100.0).round().clamp(0.0, 100.0) as u8,
-        muted,
-    })
-}
-
-/// `pactl get-sink-volume @DEFAULT_SINK@` → "Volume: front-left: 32768 / 50%/...".
-/// `pactl get-sink-mute @DEFAULT_SINK@`   → "Mute: yes" / "Mute: no".
-fn read_pactl() -> Option<VolReading> {
-    let vol_out = Command::new("pactl")
-        .args(["get-sink-volume", "@DEFAULT_SINK@"])
-        .output()
-        .ok()?;
-    let mute_out = Command::new("pactl")
-        .args(["get-sink-mute", "@DEFAULT_SINK@"])
-        .output()
-        .ok()?;
-    let vol_str = String::from_utf8(vol_out.stdout).ok()?;
-    let mute_str = String::from_utf8(mute_out.stdout).ok()?;
-
-    let volume = vol_str
-        .split('/')
-        .map(str::trim)
-        .find_map(|tok| {
-            let pct = tok.strip_suffix('%')?;
-            pct.trim().parse::<u8>().ok()
-        })?;
-    let muted = mute_str.contains("yes");
-
-    Some(VolReading { volume, muted })
 }

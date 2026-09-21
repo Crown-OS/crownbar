@@ -9,7 +9,9 @@
 mod battery;
 mod bluetooth;
 mod brightness;
+mod glyph;
 mod layout;
+mod rune;
 mod volume;
 mod wifi;
 
@@ -17,30 +19,50 @@ use vello::{kurbo::Rect, peniko::Color, Scene};
 
 use crate::widgets::Icon;
 
+pub use battery::Readout as BatteryReadout;
+
 pub const ICON_BOX: f32 = 22.0;
 
-/// Dispatch + draw one icon, centered at (cx, cy). `fg` is the foreground
-/// stroke/fill color; the icon picks accent colors from it.
+/// How much room `icon` takes along a pill. Square for all but the battery,
+/// whose accessory grows the glyph as it fades in.
+pub fn advance(icon: Icon) -> f32 {
+    match icon {
+        Icon::Battery(state) => battery::advance(state),
+        _ => ICON_BOX,
+    }
+}
+
+/// Dispatch + draw one icon in the bar's standard [`ICON_BOX`], centered at
+/// (cx, cy). `fg` is the foreground stroke/fill color; the icon picks accent
+/// colors from it.
 pub fn draw(scene: &mut Scene, icon: Icon, cx: f32, cy: f32, fg: Color) {
-    let size = ICON_BOX;
+    draw_sized(scene, icon, cx, cy, ICON_BOX, fg)
+}
+
+/// As [`draw`], in a box of `size` rather than [`ICON_BOX`]. The popup panels
+/// draw the same icons smaller than the bar does.
+pub fn draw_sized(scene: &mut Scene, icon: Icon, cx: f32, cy: f32, size: f32, fg: Color) {
     let bounds = Rect::new(
         (cx - size * 0.5) as f64,
         (cy - size * 0.5) as f64,
         (cx + size * 0.5) as f64,
         (cy + size * 0.5) as f64,
     );
+    draw_in(scene, icon, bounds, fg)
+}
+
+/// As [`draw`], into an explicit box. Useful where the glyph is not square —
+/// the small battery cell on a device row.
+pub fn draw_in(scene: &mut Scene, icon: Icon, bounds: Rect, fg: Color) {
     match icon {
         Icon::None => {}
-        Icon::Wifi { strength } => wifi::draw(scene, bounds, fg, strength),
+        Icon::Wifi(state) => wifi::draw(scene, bounds, fg, state),
         Icon::Bluetooth { on } => bluetooth::draw(scene, bounds, fg, on),
         Icon::Volume { level, muted } => volume::draw(scene, bounds, fg, level, muted),
         Icon::Brightness { level } => brightness::draw(scene, bounds, fg, level),
-        Icon::Battery {
-            pct,
-            charging,
-            saver,
-        } => battery::draw(scene, bounds, fg, pct, charging, saver),
+        Icon::Battery(state) => battery::draw(scene, bounds, fg, state),
         Icon::Layout { tiled } => layout::draw(scene, bounds, fg, tiled),
+        Icon::Rune(r) => rune::draw(scene, bounds, fg, r),
     }
 }
 

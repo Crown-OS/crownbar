@@ -3,10 +3,13 @@ pub mod bluetooth;
 pub mod brightness;
 pub mod clock;
 pub mod layout;
+pub mod popup;
 pub mod volume;
 pub mod wifi;
 
-use crate::animation::Spring;
+pub use popup::{AfterAction, PopupAction, PopupSpec};
+
+use crate::{animation::Spring, services::Services};
 
 /// Where a widget anchors itself on the bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,15 +27,74 @@ pub enum WidgetSlot {
 /// Widgets that toggle a state (battery saver, window layout, mute, …)
 /// drive a spring against a 0↔1 target and pass the spring's live position
 /// in here every frame; the result is a continuous, physical transition.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Icon {
+    #[default]
     None,
-    Wifi { strength: f32 },
+    Wifi(WifiState),
     Bluetooth { on: f32 },
     Volume { level: f32, muted: f32 },
     Brightness { level: f32 },
-    Battery { pct: f32, charging: f32, saver: f32 },
+    Battery(BatteryState),
     Layout { tiled: f32 },
+    /// A fixed, SVG-authored glyph with no animated state. Panels are full of
+    /// these — a headphone, a laptop, a chevron — and they would each need a
+    /// variant of their own otherwise.
+    Rune(Rune),
+}
+
+/// Static glyphs shared by the popup panels. Geometry lives in
+/// [`crate::ui::icons`]; this is only the name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rune {
+    Headphones,
+    Speaker,
+    Laptop,
+    Display,
+    Keyboard,
+    Phone,
+    Microphone,
+    Wifi,
+    Bluetooth,
+    Warning,
+    ChevronRight,
+    /// The three power profiles, in the order the panel lists them.
+    Leaf,
+    Gauge,
+    Bolt,
+}
+
+/// Battery visual state. Everything but the readout is spring-smoothed, so a
+/// profile change or a plug-in event *morphs* the cell — its fill travels to
+/// the new colour and the accessory beside it grows out of the terminal —
+/// rather than switching between two drawings.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BatteryState {
+    /// How much of the cell is filled ∈ [0, 1].
+    pub level: f32,
+    /// Percentage printed inside the cell.
+    pub readout: u8,
+    /// 0 = on battery, 1 = plugged in.
+    pub charging: f32,
+    /// 0 = normal profile, 1 = saving power.
+    pub saver: f32,
+    /// 0 = healthy, 1 = about to go flat.
+    pub low: f32,
+}
+
+/// Wi-Fi visual state. `off` / `searching` are spring-smoothed crossfades
+/// between the icon's poses; `phase` is the position in the scanning sweep's
+/// cycle, advanced only while the sweep is running.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WifiState {
+    /// Link quality ∈ [0, 1].
+    pub strength: f32,
+    /// 0 = radio up, 1 = radio blocked.
+    pub off: f32,
+    /// 0 = associated, 1 = scanning.
+    pub searching: f32,
+    /// Sweep cycle position ∈ [0, 1).
+    pub phase: f32,
 }
 
 /// Lean, extensible widget surface.
@@ -46,9 +108,23 @@ pub trait BarWidget {
     fn id(&self) -> &'static str;
     fn slot(&self) -> WidgetSlot;
 
-    /// Refresh internal state. Return `true` if the rendered label changed.
+    /// Take whatever the services now hold. Called after a service publishes
+    /// and once per tick. Return `true` if the pill's appearance changed.
+    fn sync(&mut self, services: &Services) -> bool {
+        let _ = services;
+        false
+    }
+
+    /// Refresh state that has no service behind it — the clock.
     fn update(&mut self) -> bool {
         false
+    }
+
+    /// Whether the pill belongs on the bar at all. A widget whose hardware is
+    /// absent takes no space and cannot be hit; it starts drawing by itself if
+    /// the hardware appears.
+    fn visible(&self) -> bool {
+        true
     }
 
     /// Primary label. Empty = no text in the pill.
@@ -61,9 +137,52 @@ pub trait BarWidget {
         Icon::None
     }
 
-    /// Pointer clicked the widget. Return `true` if the click changed state
-    /// (so the bar schedules a repaint / animation frame).
-    fn on_click(&mut self) -> bool {
+    /// Panel to show when the pill is clicked.
+    ///
+    /// `None` — the default — means the widget has no popup and a click goes
+    /// to [`on_click`](Self::on_click) instead. Building the spec allocates,
+    /// so it is only called when the panel is opened or has gone stale, never
+    /// per frame.
+    fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
+        let _ = services;
+        None
+    }
+
+    /// The pointer acted on a row of this widget's panel. Return whether the
+    /// panel should stay up or dismiss; the panel is rebuilt either way.
+    fn on_popup(&mut self, action: PopupAction, services: &Services) -> AfterAction {
+        let _ = (action, services);
+        AfterAction::Stay
+    }
+
+    /// Called while this widget's panel is open. `slow` marks the once-a-
+    /// second tick, which is when a widget should kick off a fresh reading;
+    /// the fast calls are for collecting one that has landed. Return `true`
+    /// if the panel's contents changed and it needs rebuilding.
+    fn popup_poll(&mut self, slow: bool) -> bool {
+        let _ = slow;
+        false
+    }
+
+    /// Whether background work for the panel is still in flight. While this
+    /// is `true` the popup surface stays on the frame clock, so a reading
+    /// that lands mid-animation shows up immediately rather than at the next
+    /// tick.
+    fn popup_busy(&self) -> bool {
+        false
+    }
+
+    /// The panel was dismissed. A widget that started a poll loop on open
+    /// stops it here.
+    fn popup_closed(&mut self, services: &Services) {
+        let _ = services;
+    }
+
+    /// Pointer clicked the widget, and the widget has no popup. Return `true`
+    /// if the click changed state (so the bar schedules a repaint /
+    /// animation frame).
+    fn on_click(&mut self, services: &Services) -> bool {
+        let _ = services;
         false
     }
 
@@ -110,6 +229,12 @@ impl WidgetRegistry {
         }
     }
 
+    /// Centre of a widget's pill on the bar, for anchoring its popup under it.
+    pub fn anchor_x(&self, idx: usize) -> Option<f32> {
+        let (x, _, w, _) = self.widgets.get(idx)?.bounds?;
+        Some(x + w * 0.5)
+    }
+
     pub fn register(&mut self, widget: Box<dyn BarWidget>) {
         self.widgets.push(WidgetRuntime::new(widget));
     }
@@ -119,6 +244,18 @@ impl WidgetRegistry {
         let mut dirty = false;
         for rt in self.widgets.iter_mut() {
             if rt.widget.update() {
+                dirty = true;
+            }
+        }
+        dirty
+    }
+
+    /// Hand every widget the newest snapshots. Returns whether any pill
+    /// changed appearance.
+    pub fn sync(&mut self, services: &Services) -> bool {
+        let mut dirty = false;
+        for rt in self.widgets.iter_mut() {
+            if rt.widget.sync(services) {
                 dirty = true;
             }
         }
@@ -179,11 +316,24 @@ impl WidgetRegistry {
 
     /// Forward a click to the widget at `idx`. Returns `true` if the widget
     /// reports state change (so the bar should request a frame).
-    pub fn click(&mut self, idx: usize) -> bool {
+    pub fn click(&mut self, idx: usize, services: &Services) -> bool {
         match self.widgets.get_mut(idx) {
-            Some(rt) => rt.widget.on_click(),
+            Some(rt) => rt.widget.on_click(services),
             None => false,
         }
+    }
+
+    /// Build the panel for the widget at `idx`, if it has one.
+    pub fn popup(&mut self, idx: usize, services: &Services) -> Option<PopupSpec> {
+        self.widgets.get_mut(idx)?.widget.popup(services)
+    }
+
+    /// Whether clicking the widget at `idx` opens a panel rather than acting
+    /// on the widget directly. Answered by building the panel and dropping it,
+    /// which happens once per click and keeps [`BarWidget::popup`] the single
+    /// source of truth.
+    pub fn has_popup(&mut self, idx: usize, services: &Services) -> bool {
+        self.popup(idx, services).is_some()
     }
 }
 

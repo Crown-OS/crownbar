@@ -5,6 +5,7 @@
 //! the visual treatment is in place when the compositor protocol lands.
 
 use crate::{
+    services::Services,
     animation::Spring,
     widgets::{BarWidget, Icon, WidgetSlot},
 };
@@ -45,7 +46,7 @@ impl BarWidget for LayoutWidget {
         }
     }
 
-    fn on_click(&mut self) -> bool {
+    fn on_click(&mut self, _services: &Services) -> bool {
         self.tiled = !self.tiled;
         self.morph.set_target(if self.tiled { 1.0 } else { 0.0 });
         true
