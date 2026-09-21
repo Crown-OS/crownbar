@@ -1,19 +1,17 @@
 //! Bluetooth widget and the panel behind it.
 //!
-//! The bar icon's state still comes from rfkill (see [`crate::util::rfkill`]),
-//! so it is right before any desktop daemon is up. The panel needs the paired
-//! device list, which only BlueZ has, so it reads that through
-//! [`crate::util::bluetooth`] on a worker thread and shows the switch alone
-//! where BlueZ is not answering.
+//! The icon follows the radio, which [`crate::services::bluetooth`] answers
+//! from rfkill when BlueZ is not up and from BlueZ when it is — so the pill is
+//! right before any daemon starts and stays right if one dies.
+
+use std::sync::Arc;
 
 use crate::{
-    services::Services,
     animation::Spring,
-    util::{
-        bluetooth::{self, DeviceKind, Snapshot},
-        poll::PollGate,
-        rfkill,
-        worker::Job,
+    services::{
+        bluetooth::{Address, BluetoothCommand, BluetoothState, DeviceKind},
+        link::{self, SettingsPane},
+        Interest, Services,
     },
     widgets::{
         popup::{Item, PanelBuilder, Row},
@@ -21,47 +19,28 @@ use crate::{
     },
 };
 
-const POLL_PERIOD_TICKS: u32 = 3;
-const KIND: &str = "bluetooth";
 const PANEL_WIDTH: f32 = 300.0;
 
 pub struct BluetoothWidget {
-    on: bool,
-    on_anim: Spring,
-    gate: PollGate,
-    /// Adapter and devices, as of the last completed panel read.
-    snapshot: Snapshot,
-    job: Job<Snapshot>,
+    bluetooth: Arc<BluetoothState>,
+    on: Spring,
     targets: Vec<Option<Target>>,
-    panel_open: bool,
+}
+
+#[derive(Clone, Copy)]
+enum Target {
+    Paired(Address),
+    Discovered(Address),
+    Settings,
 }
 
 impl BluetoothWidget {
-    pub fn try_new() -> Option<Self> {
-        // No radio at all is the one case where the widget does not belong on
-        // the bar. A radio with no BlueZ behind it still gets an icon.
-        if !rfkill::present(KIND) && !bluetooth::available() {
-            return None;
-        }
-        let on = rfkill::unblocked(KIND);
-        Some(Self {
-            on,
-            on_anim: Spring::new(if on { 1.0 } else { 0.0 }),
-            gate: PollGate::new(POLL_PERIOD_TICKS),
-            snapshot: Snapshot::default(),
-            job: Job::idle(),
+    pub fn new() -> Self {
+        Self {
+            bluetooth: Arc::default(),
+            on: Spring::new(0.0),
             targets: Vec::new(),
-            panel_open: false,
-        })
-    }
-
-    fn set_on(&mut self, on: bool) {
-        self.on = on;
-        self.on_anim.set_target(if on { 1.0 } else { 0.0 });
-    }
-
-    fn read(&mut self) {
-        self.job.request(bluetooth::snapshot);
+        }
     }
 }
 
@@ -74,38 +53,51 @@ impl BarWidget for BluetoothWidget {
         WidgetSlot::Right
     }
 
+    /// A radio with no BlueZ behind it still gets a pill; no radio at all does
+    /// not.
+    fn visible(&self) -> bool {
+        self.bluetooth.availability.usable()
+    }
+
     fn icon(&self) -> Icon {
         Icon::Bluetooth {
-            on: self.on_anim.position,
+            on: self.on.position,
         }
     }
 
-    fn update(&mut self) -> bool {
-        if !self.gate.should_run() {
+    fn sync(&mut self, services: &Services) -> bool {
+        let bluetooth = services.bluetooth.read();
+        if Arc::ptr_eq(&bluetooth, &self.bluetooth) {
             return false;
         }
-        let next = rfkill::unblocked(KIND);
-        if next == self.on {
-            return false;
-        }
-        self.set_on(next);
+        self.bluetooth = bluetooth;
+        self.on
+            .set_target(if self.bluetooth.radio.on() { 1.0 } else { 0.0 });
         true
     }
 
     fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
-        if !self.panel_open {
-            self.panel_open = true;
-            self.read();
-        }
+        // Discovery costs radio time, so it runs only while this panel is up.
+        services
+            .bluetooth
+            .send(BluetoothCommand::Interest(Interest::Panel));
 
+        let state = self.bluetooth.clone();
         let mut panel = PanelBuilder::new(PANEL_WIDTH);
         panel.row(Row::Header {
             title: "Bluetooth".into(),
-            toggle: Some(self.on),
+            toggle: Some(state.radio.on()),
         });
 
-        if self.on {
-            for (index, device) in self.snapshot.devices.iter().enumerate() {
+        if !state.radio.changeable() {
+            panel.row(
+                Item::new("Hardware switch is off")
+                    .plain()
+                    .enabled(false)
+                    .row(),
+            );
+        } else if state.radio.on() {
+            for device in &state.paired {
                 let mut item = Item::new(&device.name)
                     .icon(Icon::Rune(rune_for(device.kind)))
                     .selected(device.connected);
@@ -113,17 +105,39 @@ impl BarWidget for BluetoothWidget {
                     item = item
                         .detail(format!("{battery}%"))
                         .battery(battery as f32 / 100.0);
+                } else if device.busy {
+                    item = item.detail("…");
                 }
-                panel.action(item.row(), Target::Device(index));
+                panel.action(item.row(), Target::Paired(device.address));
             }
-            if self.snapshot.devices.is_empty() {
-                let message = if bluetooth::available() {
-                    "No Devices Found"
-                } else {
-                    "Bluetooth Service Unavailable"
-                };
-                panel.row(Item::new(message).plain().enabled(false).row());
+            if state.paired.is_empty() {
+                panel.row(Item::new("No Devices Paired").plain().enabled(false).row());
             }
+
+            if !state.discovered.is_empty() {
+                panel.row(Row::Separator);
+                panel.row(Row::Section {
+                    title: "Other Devices".into(),
+                    chevron: false,
+                });
+                for device in &state.discovered {
+                    panel.action(
+                        Item::new(&device.name)
+                            .icon(Icon::Rune(rune_for(device.kind)))
+                            .row(),
+                        Target::Discovered(device.address),
+                    );
+                }
+            }
+        }
+
+        if let Some(failure) = state.failure.as_ref() {
+            panel.row(
+                Item::new(failure.kind.summary())
+                    .plain()
+                    .enabled(false)
+                    .row(),
+            );
         }
 
         panel.row(Row::Separator);
@@ -142,88 +156,68 @@ impl BarWidget for BluetoothWidget {
     fn on_popup(&mut self, action: PopupAction, services: &Services) -> AfterAction {
         match action {
             PopupAction::Toggle { on, .. } => {
-                // Animate at once and let the read that follows correct us if
-                // BlueZ refused; waiting on the round trip makes the switch
-                // feel broken.
-                self.set_on(on);
-                std::thread::spawn(move || bluetooth::set_powered(on));
-                if !on {
-                    self.snapshot.devices.clear();
-                }
+                services.bluetooth.send(BluetoothCommand::SetPowered(on));
                 AfterAction::Stay
             }
-            PopupAction::Activate { row } => match self.targets.get(row).copied().flatten() {
-                Some(Target::Device(index)) => {
-                    let Some(device) = self.snapshot.devices.get_mut(index) else {
-                        return AfterAction::Stay;
-                    };
-                    let address = device.address.clone();
-                    let connect = !device.connected;
-                    device.connected = connect;
-                    // Connecting blocks until the link is up or times out, so
-                    // it never runs on the event loop.
-                    std::thread::spawn(move || bluetooth::set_connected(&address, connect));
-                    AfterAction::Stay
-                }
-                Some(Target::Settings) => {
-                    if !bluetooth::open_settings() {
-                        log::info!("no bluetooth settings application installed");
+            PopupAction::Activate { row } => {
+                match self.targets.get(row).copied().flatten() {
+                    Some(Target::Paired(address)) => {
+                        let connected = self
+                            .bluetooth
+                            .device(address)
+                            .map(|device| device.connected)
+                            .unwrap_or(false);
+                        services.bluetooth.send(if connected {
+                            BluetoothCommand::Disconnect(address)
+                        } else {
+                            BluetoothCommand::Connect(address)
+                        });
+                        AfterAction::Stay
                     }
-                    AfterAction::Close
+                    // Pairing may need a PIN, which the bar has nowhere to
+                    // collect; BlueZ's session agent answers for the devices
+                    // that pair without one, and the rest go to settings.
+                    Some(Target::Discovered(address)) => {
+                        services
+                            .bluetooth
+                            .send(BluetoothCommand::PairAndConnect(address));
+                        AfterAction::Stay
+                    }
+                    Some(Target::Settings) => {
+                        if !link::open(SettingsPane::Bluetooth) {
+                            log::info!("no bluetooth settings application installed");
+                        }
+                        AfterAction::Close
+                    }
+                    None => AfterAction::Stay,
                 }
-                None => AfterAction::Stay,
-            },
+            }
             PopupAction::Slide { .. } => AfterAction::Stay,
         }
     }
 
-    fn popup_poll(&mut self, slow: bool) -> bool {
-        let mut changed = false;
-        if let Some(snapshot) = self.job.take() {
-            if let Some(powered) = snapshot.powered
-                && powered != self.on
-            {
-                self.set_on(powered);
-                changed = true;
-            }
-            changed |= snapshot.devices != self.snapshot.devices;
-            self.snapshot = snapshot;
-        }
-        if slow {
-            self.read();
-        }
-        changed
-    }
-
-    fn popup_busy(&self) -> bool {
-        self.job.in_flight()
-    }
-
-    fn popup_closed(&mut self, _services: &Services) {
-        self.panel_open = false;
+    fn popup_closed(&mut self, services: &Services) {
+        services
+            .bluetooth
+            .send(BluetoothCommand::Interest(Interest::Idle));
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {
-        if self.on_anim.at_rest() {
+        if self.on.at_rest() {
             return false;
         }
-        self.on_anim.step(dt);
-        !self.on_anim.at_rest()
+        self.on.step(dt);
+        !self.on.at_rest()
     }
-}
-
-#[derive(Clone, Copy)]
-enum Target {
-    Device(usize),
-    Settings,
 }
 
 fn rune_for(kind: DeviceKind) -> Rune {
     match kind {
-        DeviceKind::Headphones => Rune::Headphones,
+        DeviceKind::Headphones | DeviceKind::Headset => Rune::Headphones,
         DeviceKind::Speaker => Rune::Speaker,
-        DeviceKind::Input => Rune::Keyboard,
+        DeviceKind::Keyboard | DeviceKind::Mouse => Rune::Keyboard,
         DeviceKind::Phone => Rune::Phone,
+        DeviceKind::Computer => Rune::Laptop,
         DeviceKind::Display => Rune::Display,
         DeviceKind::Other => Rune::Bluetooth,
     }

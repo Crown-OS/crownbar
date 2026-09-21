@@ -1,42 +1,14 @@
-//! Thin wrappers around one-shot subprocesses.
+//! Starting another application.
 //!
-//! The bar deliberately links no desktop daemon libraries — see
-//! [`crate::util::rfkill`]. Where a reading genuinely needs one (the list of
-//! audio sinks, of paired Bluetooth devices, of nearby networks) we shell out
-//! to the tool that ships with the daemon instead. Every call here is expected
-//! to run off the event-loop thread, through [`crate::util::worker::Job`].
+//! Nothing in the bar shells out for *data* any more — every reading comes
+//! from a daemon library in [`crate::services`]. What is left is handing a
+//! subject to the settings app, which [`crate::services::link`] does through
+//! these.
 
 use std::{
     path::Path,
     process::{Command, Stdio},
 };
-
-/// Run `program args…` and return its stdout, or `None` if it could not be
-/// started or exited non-zero.
-pub fn output(program: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8(out.stdout).ok()
-}
-
-/// Run `program args…` for its side effect. Returns whether it exited zero.
-pub fn run(program: &str, args: &[&str]) -> bool {
-    Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
 
 /// Start `program args…` and forget about it — for the "… Settings" rows,
 /// which hand off to a separate application.
@@ -80,33 +52,3 @@ pub fn launch_first(candidates: &[(&str, &[&str])]) -> bool {
     false
 }
 
-/// `nmcli -t` and friends escape `:` inside fields as `\:`. Split on the
-/// unescaped separators and unescape what is left.
-pub fn split_escaped(line: &str, sep: char) -> Vec<String> {
-    let mut fields = vec![String::new()];
-    let mut escaped = false;
-    for ch in line.chars() {
-        if escaped {
-            fields.last_mut().expect("seeded above").push(ch);
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == sep {
-            fields.push(String::new());
-        } else {
-            fields.last_mut().expect("seeded above").push(ch);
-        }
-    }
-    fields
-}
-
-/// Value of a `Key: value` line from a tool that prints indented records
-/// (`bluetoothctl info`, `bluetoothctl show`).
-pub fn field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    text.lines().find_map(|line| {
-        let line = line.trim();
-        let rest = line.strip_prefix(key)?;
-        let rest = rest.strip_prefix(':')?;
-        Some(rest.trim())
-    })
-}

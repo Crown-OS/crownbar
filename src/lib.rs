@@ -19,8 +19,8 @@ use services::{Services, Wake};
 use popup_handler::{PopupHandler, PopupState};
 use widgets::{
     battery::BatteryWidget, bluetooth::BluetoothWidget, brightness::BrightnessWidget,
-    clock::ClockWidget, layout::LayoutWidget, volume::VolumeWidget, wifi::WifiWidget, BarWidget,
-    WidgetRegistry,
+    caffeine::CaffeineWidget, clock::ClockWidget, layout::LayoutWidget, volume::VolumeWidget,
+    wifi::WifiWidget, BarWidget, WidgetRegistry,
 };
 
 pub fn app() -> Result<()> {
@@ -28,16 +28,11 @@ pub fn app() -> Result<()> {
     let mut widgets = WidgetRegistry::new();
     widgets.register(Box::new(LayoutWidget::new(false)) as Box<dyn BarWidget>);
 
+    widgets.register(Box::new(CaffeineWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(VolumeWidget::new()) as Box<dyn BarWidget>);
-    if let Some(w) = BrightnessWidget::try_new() {
-        widgets.register(Box::new(w) as Box<dyn BarWidget>);
-    }
-    if let Some(w) = BluetoothWidget::try_new() {
-        widgets.register(Box::new(w) as Box<dyn BarWidget>);
-    }
-    if let Some(w) = WifiWidget::try_new() {
-        widgets.register(Box::new(w) as Box<dyn BarWidget>);
-    }
+    widgets.register(Box::new(BrightnessWidget::new()) as Box<dyn BarWidget>);
+    widgets.register(Box::new(BluetoothWidget::new()) as Box<dyn BarWidget>);
+    widgets.register(Box::new(WifiWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(BatteryWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(ClockWidget::new()));
 
@@ -102,8 +97,12 @@ pub fn app() -> Result<()> {
         // the last `Rc<Services>` — so the tokio runtime, the PipeWire loop and
         // every live subscription are torn down exactly when the loop ends.
         app.loop_handle()
-            .insert_source(wakeups, move |_, _, _app| {
+            .insert_source(wakeups, move |_, _, app: &mut crownshell::App| {
                 services.woke();
+                // Caffeine's inhibitor is a Wayland object on the bar's own
+                // surface, so the intent the service holds is turned into one
+                // here rather than on the runtime.
+                services.reconcile(app);
                 if widgets.borrow_mut().sync(&services) {
                     popup.borrow_mut().invalidate();
                 }

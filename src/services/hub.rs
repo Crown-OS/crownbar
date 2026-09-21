@@ -8,11 +8,17 @@ use std::cell::Cell;
 
 use tokio::runtime::Runtime;
 
-use crate::services::{audio, battery, bus, power, runtime, Wake};
+use crate::services::{
+    audio, battery, bluetooth, brightness, bus, caffeine, network, power, runtime, Wake,
+};
 
 pub struct Services {
     pub audio: audio::Channel,
     pub battery: battery::Channel,
+    pub brightness: brightness::Channel,
+    pub caffeine: caffeine::Channel,
+    pub bluetooth: bluetooth::Channel,
+    pub network: network::Channel,
     pub power: power::Channel,
     /// Bumped whenever any service publishes. The surfaces compare it in
     /// `needs_redraw`, the way they already compare `theme::epoch`.
@@ -31,12 +37,30 @@ impl Services {
         let (battery_backend, battery) = bus::connect(battery::BatteryState::default(), &wake);
         rt.spawn(battery::run(battery_backend));
 
+        let (brightness_backend, brightness) =
+            bus::connect(brightness::BrightnessState::default(), &wake);
+        rt.spawn(brightness::run(brightness_backend));
+
+        let (caffeine_backend, caffeine) = bus::connect(caffeine::CaffeineState::default(), &wake);
+        rt.spawn(caffeine::run(caffeine_backend));
+
+        let (bluetooth_backend, bluetooth) =
+            bus::connect(bluetooth::BluetoothState::default(), &wake);
+        rt.spawn(bluetooth::run(bluetooth_backend));
+
+        let (network_backend, network) = bus::connect(network::NetworkState::default(), &wake);
+        rt.spawn(network::run(network_backend));
+
         let (power_backend, power) = bus::connect(power::PowerState::default(), &wake);
         rt.spawn(power::run(power_backend));
 
         Ok(Self {
             audio,
             battery,
+            brightness,
+            caffeine,
+            bluetooth,
+            network,
             power,
             epoch: Cell::new(0),
             _runtime: rt,
@@ -51,5 +75,11 @@ impl Services {
 
     pub fn epoch(&self) -> u64 {
         self.epoch.get()
+    }
+
+    /// Push whatever a service cannot do from its own thread out to the
+    /// compositor. Runs on the event loop, where `App` is reachable.
+    pub fn reconcile(&self, app: &mut crownshell::App) {
+        caffeine::reconcile(&self.caffeine, app);
     }
 }

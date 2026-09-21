@@ -13,11 +13,16 @@
 
 pub mod audio;
 pub mod battery;
+pub mod brightness;
+pub mod caffeine;
+pub mod bluetooth;
+pub mod network;
 pub mod power;
 
 pub mod link;
 
 mod bus;
+pub mod rfkill;
 mod hub;
 mod runtime;
 mod status;

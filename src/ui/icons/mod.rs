@@ -9,6 +9,7 @@
 mod battery;
 mod bluetooth;
 mod brightness;
+mod caffeine;
 mod glyph;
 mod layout;
 mod rune;
@@ -58,6 +59,7 @@ pub fn draw_in(scene: &mut Scene, icon: Icon, bounds: Rect, fg: Color) {
         Icon::None => {}
         Icon::Wifi(state) => wifi::draw(scene, bounds, fg, state),
         Icon::Bluetooth { on } => bluetooth::draw(scene, bounds, fg, on),
+        Icon::Caffeine { on } => caffeine::draw(scene, bounds, fg, on),
         Icon::Volume { level, muted } => volume::draw(scene, bounds, fg, level, muted),
         Icon::Brightness { level } => brightness::draw(scene, bounds, fg, level),
         Icon::Battery(state) => battery::draw(scene, bounds, fg, state),

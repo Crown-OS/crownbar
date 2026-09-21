@@ -1,6 +1,7 @@
 pub mod battery;
 pub mod bluetooth;
 pub mod brightness;
+pub mod caffeine;
 pub mod clock;
 pub mod layout;
 pub mod popup;
@@ -33,6 +34,8 @@ pub enum Icon {
     None,
     Wifi(WifiState),
     Bluetooth { on: f32 },
+    /// 0 = letting the machine sleep, 1 = holding it awake.
+    Caffeine { on: f32 },
     Volume { level: f32, muted: f32 },
     Brightness { level: f32 },
     Battery(BatteryState),
@@ -54,6 +57,7 @@ pub enum Rune {
     Keyboard,
     Phone,
     Microphone,
+    Sun,
     Wifi,
     Bluetooth,
     Warning,
@@ -296,15 +300,15 @@ impl WidgetRegistry {
         if self.hovered == idx {
             return false;
         }
-        if let Some(prev) = self.hovered {
-            if let Some(rt) = self.widgets.get_mut(prev) {
-                rt.hover.set_target(0.0);
-            }
+        if let Some(prev) = self.hovered
+            && let Some(rt) = self.widgets.get_mut(prev)
+        {
+            rt.hover.set_target(0.0);
         }
-        if let Some(new) = idx {
-            if let Some(rt) = self.widgets.get_mut(new) {
-                rt.hover.set_target(1.0);
-            }
+        if let Some(new) = idx
+            && let Some(rt) = self.widgets.get_mut(new)
+        {
+            rt.hover.set_target(1.0);
         }
         self.hovered = idx;
         true

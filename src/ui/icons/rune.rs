@@ -30,6 +30,7 @@ const SPEAKER: &str =
     "M6 2h12a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z M8.5 14.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0 M12 6h.01";
 const LAPTOP: &str = "M4 5h16v11H4z M2 19h20";
 const DISPLAY: &str = "M3 4h18v12H3z M8 21h8 M12 17v4";
+const SUN: &str = "M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z M12 1.5v2.5 M12 20v2.5 M3.2 3.2l1.8 1.8 M19 19l1.8 1.8 M1.5 12h2.5 M20 12h2.5 M3.2 20.8l1.8-1.8 M19 5l1.8-1.8";
 const KEYBOARD: &str = "M3 7h18v11H3z M7 11h.01 M11 11h.01 M15 11h.01 M8 15h8";
 const PHONE: &str = "M7 2h10a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z M10.5 18.5h3";
 const MICROPHONE: &str = "M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z M5 10.5a7 7 0 0 0 14 0 M12 17.5V22 M8.5 22h7";
@@ -50,6 +51,7 @@ fn svg(rune: Rune) -> &'static str {
         Rune::Keyboard => KEYBOARD,
         Rune::Phone => PHONE,
         Rune::Microphone => MICROPHONE,
+        Rune::Sun => SUN,
         Rune::Wifi => WIFI,
         Rune::Bluetooth => BLUETOOTH,
         Rune::Warning => WARNING,
@@ -81,6 +83,7 @@ fn glyph_for(rune: Rune) -> &'static Glyph {
         Keyboard,
         Phone,
         Microphone,
+        Sun,
         Wifi,
         Bluetooth,
         Warning,
