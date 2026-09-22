@@ -227,7 +227,7 @@ impl BarWidget for WifiWidget {
                 }
                 None => AfterAction::Stay,
             },
-            PopupAction::Slide { .. } => AfterAction::Stay,
+            PopupAction::Slide { .. } | PopupAction::Page { .. } => AfterAction::Stay,
         }
     }
 

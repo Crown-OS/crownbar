@@ -1,4 +1,5 @@
 pub mod backdrop;
+mod calendar;
 pub mod control;
 mod icons;
 pub mod panel;
@@ -166,7 +167,7 @@ impl BarPainter {
                         fg,
                         p,
                     ),
-                    _ => icons::draw(scene, icon, cursor + advance * 0.5, cy, fg),
+                    _ => icons::draw(scene, icon, cursor + advance * 0.5, cy, fg, p),
                 }
                 cursor += advance;
                 if !label.is_empty() {

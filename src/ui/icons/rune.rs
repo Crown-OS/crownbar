@@ -30,12 +30,14 @@ const SPEAKER: &str = "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a
 const LAPTOP: &str = "M4 5h16v11H4z M2 19h20";
 const DISPLAY: &str = "M3 4h18v12H3z M8 21h8 M12 17v4";
 const SUN: &str = "M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z M12 1.5v2.5 M12 20v2.5 M3.2 3.2l1.8 1.8 M19 19l1.8 1.8 M1.5 12h2.5 M20 12h2.5 M3.2 20.8l1.8-1.8 M19 5l1.8-1.8";
+const MOON: &str = "M21 13.2A9 9 0 1 1 10.8 3a7 7 0 0 0 10.2 10.2z";
 const KEYBOARD: &str = "M3 7h18v11H3z M7 11h.01 M11 11h.01 M15 11h.01 M8 15h8";
 const PHONE: &str = "M7 2h10a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z M10.5 18.5h3";
 const MICROPHONE: &str = "M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z M5 10.5a7 7 0 0 0 14 0 M12 17.5V22 M8.5 22h7";
 const WIFI: &str = "M12 20h.01 M8.5 16.429a5 5 0 0 1 7 0 M5 12.859a10 10 0 0 1 14 0 M2 8.82a15 15 0 0 1 20 0";
 const BLUETOOTH: &str = "M7 7 L17 17 L12 22 L12 2 L17 7 L7 17";
 const WARNING: &str = "M12 3 L22.5 20.5 L1.5 20.5 Z M12 10v4.5 M12 17.5h.01";
+const CHEVRON_LEFT: &str = "M14.5 5.5 L8 12 L14.5 18.5";
 const CHEVRON_RIGHT: &str = "M9.5 5.5 L16 12 L9.5 18.5";
 const LEAF: &str = "M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12";
 const GAUGE: &str = "M12 14 L16 10 M3.34 19a10 10 0 1 1 17.32 0";
@@ -51,9 +53,11 @@ fn svg(rune: Rune) -> &'static str {
         Rune::Phone => PHONE,
         Rune::Microphone => MICROPHONE,
         Rune::Sun => SUN,
+        Rune::Moon => MOON,
         Rune::Wifi => WIFI,
         Rune::Bluetooth => BLUETOOTH,
         Rune::Warning => WARNING,
+        Rune::ChevronLeft => CHEVRON_LEFT,
         Rune::ChevronRight => CHEVRON_RIGHT,
         Rune::Leaf => LEAF,
         Rune::Gauge => GAUGE,
@@ -83,9 +87,11 @@ fn glyph_for(rune: Rune) -> &'static Glyph {
         Phone,
         Microphone,
         Sun,
+        Moon,
         Wifi,
         Bluetooth,
         Warning,
+        ChevronLeft,
         ChevronRight,
         Leaf,
         Gauge,

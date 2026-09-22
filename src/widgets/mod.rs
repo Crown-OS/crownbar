@@ -4,13 +4,19 @@ pub mod brightness;
 pub mod caffeine;
 pub mod clock;
 pub mod layout;
+pub mod notifications;
 pub mod popup;
 pub mod volume;
+pub mod weather;
 pub mod wifi;
 
 pub use popup::{AfterAction, PopupAction, PopupSpec};
 
 use crate::{animation::Spring, services::Services};
+
+/// The sky, as [`crate::services::weather`] reports it. Re-exported so the
+/// icon layer takes its vocabulary from `widgets` like every other glyph's.
+pub use crate::services::weather::Condition;
 
 /// Where a widget anchors itself on the bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +46,18 @@ pub enum Icon {
     Brightness { level: f32 },
     Battery(BatteryState),
     Layout { tiled: f32 },
+    /// `open` is how far the notification centre is out, `silenced` how far
+    /// Do Not Disturb is on. Both are spring positions.
+    Notifications { open: f32, silenced: f32 },
+    /// The sky, cross-fading. `blend` travels 0 → 1 as the weather changes
+    /// from one condition to the next, and `night` 0 → 1 across dusk, so the
+    /// pill never switches between two drawings.
+    Weather {
+        from: Condition,
+        to: Condition,
+        blend: f32,
+        night: f32,
+    },
     /// A fixed, SVG-authored glyph with no animated state. Panels are full of
     /// these — a headphone, a laptop, a chevron — and they would each need a
     /// variant of their own otherwise.
@@ -58,9 +76,11 @@ pub enum Rune {
     Phone,
     Microphone,
     Sun,
+    Moon,
     Wifi,
     Bluetooth,
     Warning,
+    ChevronLeft,
     ChevronRight,
     /// The three power profiles, in the order the panel lists them.
     Leaf,

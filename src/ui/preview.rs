@@ -30,16 +30,187 @@ use crate::{
     ui::{panel::Panel, BarPainter},
     widgets::{
         clock::ClockWidget, layout::LayoutWidget, popup::{Item, PanelBuilder, Row}, BarWidget,
-        BatteryState, Icon, PopupSpec, Rune, WidgetRegistry, WidgetSlot,
+        BatteryState, Condition, Icon, PopupSpec, Rune, WidgetRegistry, WidgetSlot,
     },
 };
 
-const WIDTH: u32 = 1320;
+const WIDTH: u32 = 2280;
 /// One band per palette.
-const BAND: u32 = 320;
+const BAND: u32 = 424;
 const HEIGHT: u32 = BAND * 2;
 const MARGIN: f64 = 24.0;
 const BAR_H: u32 = 36;
+
+/// The weather panel, on a drizzly week.
+fn weather_panel() -> PopupSpec {
+    const WEEK: [(&str, Condition, f32, f32); 5] = [
+        ("Today", Condition::Showers, 28.0, 20.0),
+        ("Thursday", Condition::Thunder, 29.0, 19.0),
+        ("Friday", Condition::PartlyCloudy, 28.0, 20.0),
+        ("Saturday", Condition::Drizzle, 29.0, 20.0),
+        ("Sunday", Condition::Clear, 29.0, 18.0),
+    ];
+
+    let mut panel = PanelBuilder::<()>::new();
+    panel.row(Row::Header {
+        title: "Bengaluru".into(),
+        toggle: None,
+    });
+    panel.row(Row::Readout {
+        primary: "20\u{b0}".into(),
+        secondary: "Overcast \u{b7} Feels like 21\u{b0}".into(),
+    });
+    panel.row(Row::Separator);
+    for (day, condition, high, low) in WEEK {
+        panel.row(
+            Item::new(day)
+                .plain()
+                .icon(Icon::Weather {
+                    from: condition,
+                    to: condition,
+                    blend: 1.0,
+                    night: 0.0,
+                })
+                .detail(format!("{high:.0}\u{b0}  {low:.0}\u{b0}"))
+                .row(),
+        );
+    }
+    panel.row(Row::Separator);
+    panel.row(
+        Item::new("Humidity 89%  \u{b7}  Wind 13 km/h")
+            .plain()
+            .enabled(false)
+            .row(),
+    );
+    panel.row(Row::Action {
+        label: "Refresh".into(),
+    });
+    panel.finish().0
+}
+
+/// Every weather glyph, day and night, plus a cross-fade caught mid-way.
+fn weather_strip(scene: &mut Scene, top: f64, palette: &Palette) {
+    use crate::ui::icons;
+
+    const ALL: [Condition; 13] = [
+        Condition::Clear,
+        Condition::PartlyCloudy,
+        Condition::Cloudy,
+        Condition::Overcast,
+        Condition::Drizzle,
+        Condition::Rain,
+        Condition::Showers,
+        Condition::Thunder,
+        Condition::Snow,
+        Condition::Sleet,
+        Condition::Fog,
+        Condition::Haze,
+        Condition::Wind,
+    ];
+
+    let mut x = MARGIN + 20.0;
+    for night in [0.0f32, 1.0] {
+        for condition in ALL {
+            icons::draw_sized(
+                scene,
+                Icon::Weather {
+                    from: condition,
+                    to: condition,
+                    blend: 1.0,
+                    night,
+                },
+                x as f32,
+                top as f32,
+                34.0,
+                palette.fg,
+                palette,
+            );
+            x += 44.0;
+        }
+        x += 22.0;
+    }
+    // A change caught half-way, which is what the pill actually shows.
+    icons::draw_sized(
+        scene,
+        Icon::Weather {
+            from: Condition::Clear,
+            to: Condition::Rain,
+            blend: 0.5,
+            night: 0.0,
+        },
+        x as f32,
+        top as f32,
+        34.0,
+        palette.fg,
+        palette,
+    );
+}
+
+/// The Display panel, on a laptop whose compositor can tint the screen.
+fn display_panel() -> PopupSpec {
+    let mut panel = PanelBuilder::<()>::new();
+    panel.row(Row::Header {
+        title: "Display".into(),
+        toggle: None,
+    });
+    panel.row(Row::Slider {
+        icon: Icon::Rune(Rune::Sun),
+        value: 0.78,
+    });
+    panel.row(Row::Separator);
+    panel.row(Row::Header {
+        title: "Night Light".into(),
+        toggle: Some(true),
+    });
+    panel.row(Row::Slider {
+        icon: Icon::Rune(Rune::Moon),
+        value: 0.62,
+    });
+    panel.row(
+        Item::new("Colour Temperature")
+            .plain()
+            .detail("3400 K")
+            .enabled(false)
+            .row(),
+    );
+    panel.row(Row::Separator);
+    panel.row(Row::Action {
+        label: "Display Settings…".into(),
+    });
+    panel.finish().0
+}
+
+/// The clock's panel, rendered for a fixed date so the picture is stable.
+fn calendar_panel() -> PopupSpec {
+    use chrono::{Datelike, NaiveDate};
+
+    use crate::{util::calendar, widgets::popup::{Day, Month}};
+
+    let today = NaiveDate::from_ymd_opt(2026, 9, 23).expect("a date");
+    let anchor = today.with_day(1).expect("the first");
+    let mut panel = PanelBuilder::<()>::new();
+    panel.row(Row::Readout {
+        primary: "09:41".into(),
+        secondary: "Wednesday, 23 September 2026".into(),
+    });
+    panel.row(Row::Separator);
+    panel.row(Row::Calendar(Box::new(Month {
+        title: "September 2026".into(),
+        days: calendar::grid(anchor)
+            .map(|date| Day {
+                day: date.day() as u8,
+                in_month: date.month() == anchor.month(),
+                today: date == today,
+                weekend: calendar::is_weekend(date),
+            })
+            .collect(),
+    })));
+    panel.row(Row::Separator);
+    panel.row(Row::Action {
+        label: "Date & Time Settings…".into(),
+    });
+    panel.finish().0
+}
 
 /// The Sound panel with a laptop and a pair of headphones attached.
 fn sound_panel() -> PopupSpec {
@@ -263,6 +434,7 @@ fn render_panels() {
         let top = (band as u32 * BAND) as f64;
         backdrop(&mut scene, band as u32, mode.is_dark());
         bar_strip(&mut scene, top, &palette, &mut tcx);
+        weather_strip(&mut scene, top + BAND as f64 - 46.0, &palette);
 
         // The middle panel is drawn with a row hovered, so both row states
         // show up in each mode.
@@ -271,6 +443,9 @@ fn render_panels() {
             (wifi_panel(), Some(3usize)),
             (bluetooth_panel(), None),
             (battery_panel(), Some(5usize)),
+            (display_panel(), None),
+            (weather_panel(), Some(3usize)),
+            (calendar_panel(), None),
         ];
         let mut x = MARGIN;
         let y = top + BAR_H as f64 + 6.0;

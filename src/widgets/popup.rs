@@ -36,6 +36,34 @@ pub enum Row {
     Separator,
     /// Footer row that hands off elsewhere ("Sound Settings…").
     Action { label: String },
+    /// The clock's readout: the time, large, with the date beneath it.
+    Readout { primary: String, secondary: String },
+    /// A month grid. Boxed for the same reason [`Item`] is — it is an order of
+    /// magnitude larger than every other variant, and a `Vec<Row>`'s slot is
+    /// the size of its largest.
+    Calendar(Box<Month>),
+}
+
+/// One month, laid out as the six weeks [`crate::util::calendar::grid`]
+/// produces. The panel owns how it looks; this is only what it says.
+#[derive(Clone, Debug, Default)]
+pub struct Month {
+    /// "September 2026".
+    pub title: String,
+    /// Six weeks of cells, Monday first.
+    pub days: Vec<Day>,
+}
+
+/// One cell of the grid. `Copy` and free of allocation: the grid is rebuilt
+/// every second the panel is open, and forty-two `String`s a second to print
+/// the numbers 1 to 31 would be forty-two allocations too many.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Day {
+    pub day: u8,
+    /// False for the lead-in and lead-out days of the neighbouring months.
+    pub in_month: bool,
+    pub today: bool,
+    pub weekend: bool,
 }
 
 impl Row {
@@ -45,7 +73,13 @@ impl Row {
             Row::Item(item) => item.enabled,
             Row::Action { .. } => true,
             Row::Section { chevron, .. } => *chevron,
-            Row::Header { .. } | Row::Slider { .. } | Row::Separator => false,
+            // A calendar is acted on through its arrows, which are hit-tested
+            // separately — the grid itself is not a row target.
+            Row::Header { .. }
+            | Row::Slider { .. }
+            | Row::Separator
+            | Row::Readout { .. }
+            | Row::Calendar(_) => false,
         }
     }
 }
@@ -133,6 +167,8 @@ pub enum PopupAction {
     },
     /// An item, section chevron or action row was clicked.
     Activate { row: usize },
+    /// A calendar's back or forward arrow was clicked. `months` is -1 or +1.
+    Page { row: usize, months: i32 },
 }
 
 /// Builds a [`PopupSpec`] while recording what each row *means* to the widget

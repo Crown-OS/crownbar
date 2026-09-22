@@ -17,7 +17,11 @@ pub mod brightness;
 pub mod caffeine;
 pub mod bluetooth;
 pub mod network;
+pub mod nightlight;
+pub mod notifications;
 pub mod power;
+pub mod stats;
+pub mod weather;
 
 pub mod link;
 

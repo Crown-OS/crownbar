@@ -189,7 +189,7 @@ impl BarWidget for BluetoothWidget {
                     None => AfterAction::Stay,
                 }
             }
-            PopupAction::Slide { .. } => AfterAction::Stay,
+            PopupAction::Slide { .. } | PopupAction::Page { .. } => AfterAction::Stay,
         }
     }
 

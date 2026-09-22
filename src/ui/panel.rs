@@ -32,15 +32,15 @@ use crate::{
     },
 };
 
-use super::{control, icons};
+use super::{calendar, control, icons};
 
 /// Every panel is this wide, whatever rows it holds.
 pub const WIDTH: f32 = 296.0;
 pub const RADIUS: f64 = 13.0;
 
-const FONT: &str = "system-ui";
+pub(super) const FONT: &str = "system-ui";
 /// Inner horizontal padding of the panel.
-const PAD_X: f32 = 14.0;
+pub(super) const PAD_X: f32 = 14.0;
 const PAD_TOP: f32 = 10.0;
 const PAD_BOTTOM: f32 = 10.0;
 /// How far a row's highlight is inset from the panel edge.
@@ -53,6 +53,12 @@ const H_SECTION: f32 = 26.0;
 const H_ITEM: f32 = 38.0;
 const H_ACTION: f32 = 27.0;
 const H_SEPARATOR: f32 = 11.0;
+const H_READOUT: f32 = 62.0;
+/// The readout's two lines, so they sit as one block rather than each centred
+/// in its own half.
+const READOUT_PRIMARY_H: f64 = 38.0;
+const READOUT_SECONDARY_H: f64 = 17.0;
+const READOUT_STACK: f64 = READOUT_PRIMARY_H + READOUT_SECONDARY_H;
 
 const BADGE_D: f32 = 27.0;
 const GLYPH_D: f32 = 17.0;
@@ -87,6 +93,9 @@ struct RowState {
     /// toward the spec's value, which is what makes a toggle slide and a
     /// volume reading from the audio server glide instead of jumping.
     anim: Option<Spring>,
+    /// A month grid's fifty runs. Empty on every other kind of row, so it
+    /// costs a row that is not a calendar nothing but the header.
+    cells: Vec<Text>,
 }
 
 impl Panel {
@@ -144,6 +153,7 @@ impl Panel {
             for text in [state.primary.as_mut(), state.detail.as_mut()]
                 .into_iter()
                 .flatten()
+                .chain(state.cells.iter_mut())
             {
                 let _ = text.size(tcx);
             }
@@ -205,6 +215,15 @@ impl Panel {
             matches!(self.spec.rows[i], Row::Slider { .. }) && self.row_rect(i).contains(point)
         })?;
         Some((index, self.slider_value_at(index, point.x)))
+    }
+
+    /// The calendar arrow under a point, and the step it means.
+    pub fn page_at(&self, point: Point) -> Option<(usize, i32)> {
+        (0..self.spec.rows.len()).find_map(|i| {
+            matches!(self.spec.rows[i], Row::Calendar(_))
+                .then(|| calendar::arrow_at(self.row_rect(i), point).map(|months| (i, months)))
+                .flatten()
+        })
     }
 
     /// Map an x in panel-local space onto a slider's value.
@@ -361,6 +380,7 @@ impl Panel {
                     center.y as f32,
                     SLIDER_ICON_D,
                     p.fg_muted,
+                    p,
                 );
                 let value = state.anim.as_ref().map(|s| s.position).unwrap_or(0.0);
                 control::slider(scene, shifted(self.slider_span(index)), value, p);
@@ -371,7 +391,7 @@ impl Panel {
                         draw_highlight(scene, shifted(self.highlight_rect(index)), p.row_hover);
                     }
                     let center = at((WIDTH - PAD_X - CHEVRON_D * 0.5) as f64, cy);
-                    draw_rune(scene, center, CHEVRON_D, p.fg_dim, Rune::ChevronRight);
+                    draw_rune(scene, center, CHEVRON_D, p.fg_dim, Rune::ChevronRight, p);
                 }
                 draw_left(
                     state.primary.as_mut(),
@@ -392,6 +412,26 @@ impl Panel {
                     p.fg,
                     tcx,
                 );
+            }
+            Row::Readout { .. } => {
+                let top = bounds.y0 + (bounds.height() - READOUT_STACK) * 0.5;
+                draw_left(
+                    state.primary.as_mut(),
+                    scene,
+                    at(PAD_X as f64, top + READOUT_PRIMARY_H * 0.5),
+                    p.fg,
+                    tcx,
+                );
+                draw_left(
+                    state.detail.as_mut(),
+                    scene,
+                    at(PAD_X as f64, top + READOUT_PRIMARY_H + READOUT_SECONDARY_H * 0.5),
+                    p.fg_dim,
+                    tcx,
+                );
+            }
+            Row::Calendar(month) => {
+                calendar::draw(scene, shift, bounds, month, &mut state.cells, p, tcx)
             }
             Row::Item(item) => self.draw_item(scene, shift, index, item, state, hovered, p, tcx),
         }
@@ -447,6 +487,7 @@ impl Panel {
                 center.y as f32,
                 glyph_d,
                 glyph_color,
+                p,
             );
             left += BADGE_D + TEXT_GAP;
         }
@@ -456,21 +497,11 @@ impl Panel {
         if item.chevron {
             draw_rune(
                 scene,
-                at((right - CHEVRON_D * 0.5) as f64, cy),
-                CHEVRON_D,
-                p.fg_dim,
-                Rune::ChevronRight,
-            );
+                at((right - CHEVRON_D * 0.5) as f64, cy), CHEVRON_D, p.fg_dim, Rune::ChevronRight, p);
             right -= CHEVRON_D + TRAILING_GAP;
         }
         if item.warning {
-            draw_rune(
-                scene,
-                at((right - WARNING_D * 0.5) as f64, cy),
-                WARNING_D,
-                p.warning,
-                Rune::Warning,
-            );
+            draw_rune(scene, at((right - WARNING_D * 0.5) as f64, cy), WARNING_D, p.warning, Rune::Warning, p);
             right -= WARNING_D + TRAILING_GAP;
         }
         if let Some(level) = item.battery {
@@ -488,6 +519,7 @@ impl Panel {
                 }),
                 shifted(cell),
                 p.fg_dim,
+                p,
             );
             right -= BATTERY_W + TRAILING_GAP;
         }
@@ -546,6 +578,7 @@ impl RowState {
                 self.anim = None;
             }
             Row::Item(item) => {
+                self.cells.clear();
                 set(&mut self.primary, &item.label, weight(400.0, 13.0));
                 match item.detail.as_deref() {
                     Some(detail) => set(&mut self.detail, detail, weight(400.0, 12.5)),
@@ -557,6 +590,20 @@ impl RowState {
                 self.primary = None;
                 self.detail = None;
                 self.retarget(Some(*value), initial);
+            }
+            Row::Readout { primary, secondary } => {
+                set(&mut self.primary, primary, weight(300.0, 34.0));
+                unclamp(&mut self.primary);
+                set(&mut self.detail, secondary, weight(500.0, 13.0));
+                unclamp(&mut self.detail);
+                self.anim = None;
+                self.cells.clear();
+            }
+            Row::Calendar(month) => {
+                self.primary = None;
+                self.detail = None;
+                self.anim = None;
+                calendar::sync(month, &mut self.cells);
             }
             Row::Separator => {
                 self.primary = None;
@@ -612,7 +659,7 @@ fn draw_left(
     );
 }
 
-fn draw_rune(scene: &mut Scene, center: Point, size: f32, color: Color, rune: Rune) {
+fn draw_rune(scene: &mut Scene, center: Point, size: f32, color: Color, rune: Rune, p: &Palette) {
     icons::draw_sized(
         scene,
         Icon::Rune(rune),
@@ -620,6 +667,7 @@ fn draw_rune(scene: &mut Scene, center: Point, size: f32, color: Color, rune: Ru
         center.y as f32,
         size,
         color,
+        p,
     );
 }
 
@@ -641,6 +689,8 @@ fn row_height(row: &Row) -> f32 {
         Row::Item(_) => H_ITEM,
         Row::Separator => H_SEPARATOR,
         Row::Action { .. } => H_ACTION,
+        Row::Readout { .. } => H_READOUT,
+        Row::Calendar(_) => calendar::height(),
     }
 }
 

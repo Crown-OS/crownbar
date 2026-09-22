@@ -27,6 +27,70 @@ fn the_services_describe_this_machine() {
     audio_finds_its_devices(&services);
     the_power_daemon_offers_profiles(&services);
     the_battery_reads_or_says_why(&services);
+    the_notification_centre_answers_or_says_why(&services);
+    the_weather_arrives_or_says_why(&services);
+}
+
+/// The one service that leaves the machine, so the one that can fail for
+/// reasons nothing here can fix. As with crownotify the check is that it
+/// settled on an answer; what it must never do is sit in `Starting`.
+fn the_weather_arrives_or_says_why(services: &Services) {
+    let weather = services.weather.read();
+    assert_ne!(
+        weather.availability,
+        Availability::Starting,
+        "the weather service never finished its first refresh"
+    );
+    match weather.current {
+        Some(current) => {
+            eprintln!(
+                "weather in {}: {:?} {:.0}C, feels {:.0}C, {}% humidity, wind {:.0}km/h, night {}",
+                weather.place.as_deref().unwrap_or("?"),
+                current.condition,
+                current.celsius,
+                current.feels_like,
+                current.humidity,
+                current.wind_kph,
+                current.night
+            );
+            assert!(
+                (-90.0..=60.0).contains(&current.celsius),
+                "{}C is not a temperature anywhere on Earth, so the field is \
+                 probably being read in the wrong unit",
+                current.celsius
+            );
+            assert!(
+                !weather.outlook.is_empty(),
+                "a current reading arrived with no daily forecast beside it"
+            );
+            for day in &weather.outlook {
+                eprintln!("  {} {:?} {:.0}/{:.0}", day.day, day.condition, day.high, day.low);
+                assert!(day.high >= day.low, "{}'s high is below its low", day.day);
+            }
+        }
+        None => eprintln!("weather unavailable: {:?}", weather.availability),
+    }
+}
+
+/// crownotify is a separate daemon and may well not be running, so the check
+/// is that the service settled on an answer either way. What it must never do
+/// is sit in `Starting`: that would mean the reconnect loop never ran, and the
+/// pill would stay off the bar even once crownotify came up.
+fn the_notification_centre_answers_or_says_why(services: &Services) {
+    let notifications = services.notifications.read();
+    assert_ne!(
+        notifications.availability,
+        Availability::Starting,
+        "the notification service never finished its first connection attempt"
+    );
+    match &notifications.availability {
+        Availability::Ready => eprintln!(
+            "crownotify: centre {}, do not disturb {}",
+            if notifications.center_open { "open" } else { "closed" },
+            notifications.do_not_disturb
+        ),
+        other => eprintln!("crownotify unavailable: {other:?}"),
+    }
 }
 
 fn audio_finds_its_devices(services: &Services) {

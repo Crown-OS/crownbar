@@ -398,6 +398,8 @@ impl SurfaceHandler for PopupHandler {
             panel
                 .toggle_state(row)
                 .map(|on| PopupAction::Toggle { row, on: !on })
+        } else if let Some((row, months)) = panel.page_at(point) {
+            Some(PopupAction::Page { row, months })
         } else if let Some((row, value)) = panel.slider_at(point) {
             // Move the knob to the pointer straight away; the reading that
             // comes back from the audio server is a second behind at best.

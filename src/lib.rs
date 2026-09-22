@@ -19,7 +19,8 @@ use services::{Services, Wake};
 use popup_handler::{PopupHandler, PopupState};
 use widgets::{
     battery::BatteryWidget, bluetooth::BluetoothWidget, brightness::BrightnessWidget,
-    caffeine::CaffeineWidget, clock::ClockWidget, layout::LayoutWidget, volume::VolumeWidget,
+    caffeine::CaffeineWidget, clock::ClockWidget, layout::LayoutWidget,
+    notifications::NotificationsWidget, volume::VolumeWidget, weather::WeatherWidget,
     wifi::WifiWidget, BarWidget, WidgetRegistry,
 };
 
@@ -28,12 +29,14 @@ pub fn app() -> Result<()> {
     let mut widgets = WidgetRegistry::new();
     widgets.register(Box::new(LayoutWidget::new(false)) as Box<dyn BarWidget>);
 
+    widgets.register(Box::new(WeatherWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(CaffeineWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(VolumeWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(BrightnessWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(BluetoothWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(WifiWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(BatteryWidget::new()) as Box<dyn BarWidget>);
+    widgets.register(Box::new(NotificationsWidget::new()) as Box<dyn BarWidget>);
     widgets.register(Box::new(ClockWidget::new()));
 
     // The registry is shared: the popup surface reads the open widget's panel

@@ -124,7 +124,7 @@ impl BarWidget for CaffeineWidget {
                     None => AfterAction::Stay,
                 }
             }
-            PopupAction::Slide { .. } => AfterAction::Stay,
+            PopupAction::Slide { .. } | PopupAction::Page { .. } => AfterAction::Stay,
         }
     }
 

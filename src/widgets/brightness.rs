@@ -12,16 +12,18 @@ use crate::{
     services::{
         brightness::{BrightnessCommand, BrightnessState, DisplayId},
         link::{self, SettingsPane},
+        nightlight::{NightLightCommand, NightLightState},
         Interest, Services,
     },
     widgets::{
-        popup::{PanelBuilder, Row},
+        popup::{Item, PanelBuilder, Row},
         AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WidgetSlot,
     },
 };
 
 pub struct BrightnessWidget {
     brightness: Arc<BrightnessState>,
+    nightlight: Arc<NightLightState>,
     level: Spring,
     targets: Vec<Option<Target>>,
 }
@@ -29,6 +31,7 @@ pub struct BrightnessWidget {
 #[derive(Clone)]
 enum Target {
     Display(DisplayId),
+    NightLight,
     Settings,
 }
 
@@ -36,6 +39,7 @@ impl BrightnessWidget {
     pub fn new() -> Self {
         Self {
             brightness: Arc::default(),
+            nightlight: Arc::default(),
             level: Spring::new(0.0),
             targets: Vec::new(),
         }
@@ -62,6 +66,10 @@ impl BarWidget for BrightnessWidget {
     }
 
     fn sync(&mut self, services: &Services) -> bool {
+        // The night light changes nothing about the pill, so it never reports
+        // a repaint of its own — but the panel is rebuilt from it, so the
+        // widget has to be holding the newest one when that happens.
+        self.nightlight = services.nightlight.read();
         let brightness = services.brightness.read();
         if Arc::ptr_eq(&brightness, &self.brightness) {
             return false;
@@ -114,6 +122,31 @@ impl BarWidget for BrightnessWidget {
             );
         }
 
+        // A compositor with no gamma protocol gets no night-light rows, rather
+        // than a switch that silently does nothing.
+        if self.nightlight.availability.usable() {
+            let night = self.nightlight.clone();
+            panel.row(Row::Separator);
+            panel.row(Row::Header {
+                title: "Night Light".into(),
+                toggle: Some(night.active),
+            });
+            panel.action(
+                Row::Slider {
+                    icon: Icon::Rune(Rune::Moon),
+                    value: night.warmth(),
+                },
+                Target::NightLight,
+            );
+            panel.row(
+                Item::new("Colour Temperature")
+                    .plain()
+                    .detail(format!("{} K", night.kelvin))
+                    .enabled(false)
+                    .row(),
+            );
+        }
+
         panel.row(Row::Separator);
         panel.action(
             Row::Action {
@@ -132,10 +165,18 @@ impl BarWidget for BrightnessWidget {
             // Sent as it happens: the service coalesces, so a drag costs one
             // write per round trip however fast the pointer moves.
             PopupAction::Slide { row, value, .. } => {
-                if let Some(Target::Display(id)) = self.targets.get(row).cloned().flatten() {
-                    services
+                match self.targets.get(row).cloned().flatten() {
+                    Some(Target::Display(id)) => services
                         .brightness
-                        .send(BrightnessCommand::SetLevel { id, level: value });
+                        .send(BrightnessCommand::SetLevel { id, level: value }),
+                    // Dragging the warmth slider turns the tint on, which is
+                    // how most people will switch it on in the first place.
+                    Some(Target::NightLight) => services
+                        .nightlight
+                        .send(NightLightCommand::SetKelvin(NightLightState::kelvin_at(
+                            value,
+                        ))),
+                    _ => {}
                 }
                 AfterAction::Stay
             }
@@ -148,7 +189,11 @@ impl BarWidget for BrightnessWidget {
                 }
                 AfterAction::Stay
             }
-            PopupAction::Toggle { .. } => AfterAction::Stay,
+            PopupAction::Toggle { on, .. } => {
+                services.nightlight.send(NightLightCommand::SetActive(on));
+                AfterAction::Stay
+            }
+            PopupAction::Page { .. } => AfterAction::Stay,
         }
     }
 

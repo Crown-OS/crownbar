@@ -6,8 +6,14 @@ edition = "2024"
 [dependencies]
 crownshell = { git = "https://github.com/crown-os/crownshell" }
 crownos-config = { git = "https://github.com/crown-os/crownos-config" }
-crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc" }
+# `tokio` gives the notification service an AsyncClient on the runtime the
+# other services already share, rather than a thread of its own.
+crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc", features = ["tokio"] }
 crownuikit = { git = "https://github.com/crown-os/crownuikit" }
+# crownotify's own declaration of its protocol, so the bar cannot drift from
+# it. Without `daemon` it is the schema alone — none of the notification
+# daemon's rendering or D-Bus stack is built here.
+crownotify = { git = "https://github.com/crown-os/crownotify", default-features = false }
 config = { path = "./config" }
 
 anyhow = "1.0.102"
@@ -27,6 +33,14 @@ bluer = { version = "0.17.4", features = ["bluetoothd", "full", "id", "rfcomm"] 
 pipewire-native = "0.1.4"
 pipewire-native-spa = "0.1.4"
 nmrs = "3.5"
+# The weather widget's two calls, and the only ones the bar makes. rustls
+# rather than native-tls so the bar carries no OpenSSL of its own.
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+  "http2",
+] }
+serde = { version = "1", features = ["derive"] }
 ddc-hi = { version = "0.4", default-features = false, features = ["ddc-i2c"] }
 
 [dev-dependencies]
@@ -49,3 +63,6 @@ crownos-ipc = { path = "../crownos-ipc" }
 
 [patch."https://github.com/crown-os/crownuikit"]
 crownuikit = { path = "../crownuikit" }
+
+[patch."https://github.com/crown-os/crownotify"]
+crownotify = { path = "../crownotify" }

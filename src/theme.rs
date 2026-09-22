@@ -80,6 +80,15 @@ pub struct Stops {
 }
 
 impl Stops {
+    /// A pair of opaque 0xRRGGBB literals, for the palettes spelled out in
+    /// this file.
+    const fn of(start: u32, end: u32) -> Self {
+        Self {
+            start: rgb(start),
+            end: rgb(end),
+        }
+    }
+
     /// Top→bottom down the column at `x`. The toggle track's orientation.
     pub fn vertical(self, x: f64, y0: f64, y1: f64) -> Gradient {
         Gradient::new_linear(Point::new(x, y0), Point::new(x, y1))
@@ -99,6 +108,41 @@ impl Stops {
         }
     }
 }
+
+/// The weather glyphs' own colors.
+///
+/// The one illustrative palette in the bar: these read as a sun, a cloud and
+/// rain rather than as foreground and accent, so they cannot come from the
+/// kit's semantic slots. They are still named *here* rather than in the icon
+/// module, so this file stays the only place in the crate that spells a color.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WeatherColors {
+    pub sun: Stops,
+    pub moon: Stops,
+    pub cloud: Stops,
+    /// Overcast, and the haze bars behind a night moon.
+    pub cloud_dark: Stops,
+    /// Rain, snow and wind.
+    pub water: Stops,
+}
+
+const WEATHER_DARK: WeatherColors = WeatherColors {
+    sun: Stops::of(0xFF_C2_4D, 0xFF_7A_18),
+    moon: Stops::of(0xFF_D3_7A, 0xFF_A5_2E),
+    cloud: Stops::of(0xFF_FF_FF, 0xC2_C7_CF),
+    cloud_dark: Stops::of(0xA8_AE_B8, 0x6E_74_7E),
+    water: Stops::of(0x7F_B8_F5, 0x3A_82_D9),
+};
+
+/// The same hues, darkened where they would otherwise disappear into a light
+/// panel — a white cloud on white needs an edge the dark mode does not.
+const WEATHER_LIGHT: WeatherColors = WeatherColors {
+    sun: Stops::of(0xFF_B0_2E, 0xF0_66_00),
+    moon: Stops::of(0xF7_BE_54, 0xE8_8E_10),
+    cloud: Stops::of(0xF4_F6_F9, 0xA7_AF_BB),
+    cloud_dark: Stops::of(0x9A_A2_AE, 0x5E_65_70),
+    water: Stops::of(0x5E_9F_EC, 0x1E_66_C4),
+};
 
 /// Every color the bar paints, resolved for this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -123,6 +167,9 @@ pub struct Palette {
     pub fg_muted: Color,
     /// Third level — section headings, trailing detail, chevrons.
     pub fg_dim: Color,
+    /// Text and glyphs sitting *on* an accent fill, where the foreground
+    /// slots above would vanish — today's date in the calendar grid.
+    pub fg_on_accent: Color,
 
     /// Popup panel body, rim and drop shadow.
     pub panel_bg: Color,
@@ -166,6 +213,17 @@ pub struct Palette {
     pub success: Color,
     /// Failing: a battery about to go flat.
     pub danger: Color,
+
+    /// The weather glyphs — see [`WeatherColors`].
+    pub weather: WeatherColors,
+}
+
+const fn rgb(hex: u32) -> Color {
+    Color::from_rgb8(
+        (hex >> 16) as u8,
+        ((hex >> 8) & 0xFF) as u8,
+        (hex & 0xFF) as u8,
+    )
 }
 
 /// Snapshot the palette as of right now.
@@ -194,6 +252,7 @@ pub fn palette() -> Palette {
         fg: srgb(t.popover.text.components),
         fg_muted: srgb(t.text.body.components),
         fg_dim: srgb(t.popover.muted_text.components),
+        fg_on_accent: srgb(t.text.on_accent.components),
 
         panel_bg,
         panel_rim: with_alpha(lerp(panel_bg, srgb(t.text.primary.components), 0.16), 0.55),
@@ -222,6 +281,12 @@ pub fn palette() -> Palette {
         warning: srgb(t.status.warning.components),
         success: srgb(t.status.success.components),
         danger: srgb(t.status.danger.components),
+
+        weather: if t.mode.is_dark() {
+            WEATHER_DARK
+        } else {
+            WEATHER_LIGHT
+        },
     }
 }
 

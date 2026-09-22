@@ -9,7 +9,8 @@ use std::cell::Cell;
 use tokio::runtime::Runtime;
 
 use crate::services::{
-    audio, battery, bluetooth, brightness, bus, caffeine, network, power, runtime, Wake,
+    audio, battery, bluetooth, brightness, bus, caffeine, network, nightlight, notifications,
+    power, runtime, stats, weather, Wake,
 };
 
 pub struct Services {
@@ -19,7 +20,11 @@ pub struct Services {
     pub caffeine: caffeine::Channel,
     pub bluetooth: bluetooth::Channel,
     pub network: network::Channel,
+    pub nightlight: nightlight::Channel,
+    pub notifications: notifications::Channel,
     pub power: power::Channel,
+    pub stats: stats::Channel,
+    pub weather: weather::Channel,
     /// Bumped whenever any service publishes. The surfaces compare it in
     /// `needs_redraw`, the way they already compare `theme::epoch`.
     epoch: Cell<u64>,
@@ -51,8 +56,22 @@ impl Services {
         let (network_backend, network) = bus::connect(network::NetworkState::default(), &wake);
         rt.spawn(network::run(network_backend));
 
+        let (nightlight_backend, nightlight) =
+            bus::connect(nightlight::NightLightState::default(), &wake);
+        rt.spawn(nightlight::run(nightlight_backend));
+
+        let (notifications_backend, notifications) =
+            bus::connect(notifications::NotificationsState::default(), &wake);
+        rt.spawn(notifications::run(notifications_backend));
+
         let (power_backend, power) = bus::connect(power::PowerState::default(), &wake);
         rt.spawn(power::run(power_backend));
+
+        let (stats_backend, stats) = bus::connect(stats::StatsState::default(), &wake);
+        rt.spawn(stats::run(stats_backend));
+
+        let (weather_backend, weather) = bus::connect(weather::WeatherState::default(), &wake);
+        rt.spawn(weather::run(weather_backend));
 
         Ok(Self {
             audio,
@@ -61,7 +80,11 @@ impl Services {
             caffeine,
             bluetooth,
             network,
+            nightlight,
+            notifications,
             power,
+            stats,
+            weather,
             epoch: Cell::new(0),
             _runtime: rt,
         })
@@ -81,5 +104,6 @@ impl Services {
     /// compositor. Runs on the event loop, where `App` is reachable.
     pub fn reconcile(&self, app: &mut crownshell::App) {
         caffeine::reconcile(&self.caffeine, app);
+        nightlight::reconcile(&self.nightlight, app);
     }
 }

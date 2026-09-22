@@ -17,6 +17,7 @@ pub enum SettingsPane {
     Network,
     Display,
     Battery,
+    DateTime,
 }
 
 impl SettingsPane {
@@ -30,6 +31,7 @@ impl SettingsPane {
             Self::Network => "network",
             Self::Display => "display",
             Self::Battery => "battery",
+            Self::DateTime => "date-time",
         }
     }
 
@@ -44,6 +46,7 @@ impl SettingsPane {
             Self::Network => &[("nm-connection-editor", &[]), ("iwgtk", &[])],
             Self::Display => &[("wdisplays", &[])],
             Self::Battery => &[],
+            Self::DateTime => &[("gnome-control-center", &["datetime"])],
         }
     }
 }

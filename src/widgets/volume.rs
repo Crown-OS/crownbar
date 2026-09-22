@@ -187,7 +187,7 @@ impl BarWidget for VolumeWidget {
             PopupAction::Slide { row, .. } | PopupAction::Activate { row } => {
                 self.targets.get(row).copied().flatten()
             }
-            PopupAction::Toggle { .. } => None,
+            PopupAction::Toggle { .. } | PopupAction::Page { .. } => None,
         };
         let Some(target) = target else {
             return AfterAction::Stay;
