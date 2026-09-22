@@ -26,8 +26,7 @@ const INK_FILL: f64 = 1.0;
 const STROKE: f64 = 2.0;
 
 const HEADPHONES: &str = "M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3";
-const SPEAKER: &str =
-    "M6 2h12a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z M8.5 14.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0 M12 6h.01";
+const SPEAKER: &str = "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M12 12a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z M12 7.5h.01";
 const LAPTOP: &str = "M4 5h16v11H4z M2 19h20";
 const DISPLAY: &str = "M3 4h18v12H3z M8 21h8 M12 17v4";
 const SUN: &str = "M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z M12 1.5v2.5 M12 20v2.5 M3.2 3.2l1.8 1.8 M19 19l1.8 1.8 M1.5 12h2.5 M20 12h2.5 M3.2 20.8l1.8-1.8 M19 5l1.8-1.8";
