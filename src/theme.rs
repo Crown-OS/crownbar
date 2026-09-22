@@ -40,6 +40,16 @@ const PANEL_OPACITY: f32 = 0.66;
 /// text stops being readable over a bright wallpaper.
 const MIN_PANEL_OPACITY: f32 = 0.55;
 
+/// The bar's own foreground, idle then under the pointer, per mode. Unlike
+/// every other slot these are named here rather than taken from the kit: a
+/// panel's text sits on the panel's own body, but the bar's sits over the
+/// wallpaper, and the contrast that reads well there is the desktop's choice
+/// rather than a derivative of the window palette.
+const BAR_FG_DARK: Color = Color::from_rgb8(0xDD, 0xDD, 0xDD);
+const BAR_FG_HOVER_DARK: Color = Color::from_rgb8(0xAA, 0xAA, 0xAA);
+const BAR_FG_LIGHT: Color = Color::from_rgb8(0x11, 0x11, 0x11);
+const BAR_FG_HOVER_LIGHT: Color = Color::from_rgb8(0x33, 0x33, 0x33);
+
 // -- geometry-free layout tokens ---------------------------------------------
 // Spacing is the bar's own business; only color comes from the kit.
 
@@ -53,6 +63,8 @@ pub const PILL_PAD_Y: f32 = 0.0;
 pub const WIDGET_GAP: f32 = 12.0;
 /// Font size for widget text.
 pub const FONT_SIZE: f32 = 14.0;
+/// Font weight for widget text.
+pub const FONT_WEIGHT: f32 = 600.0;
 
 /// Two-stop accent gradient, in the bar's color type.
 ///
@@ -101,7 +113,11 @@ pub struct Palette {
     pub pill_hover: Color,
     pub pill_active: Color,
 
-    /// Icons and text on the bar, and a panel's primary text.
+    /// Icons and text on the bar, idle and under the pointer.
+    pub bar_fg: Color,
+    pub bar_fg_hover: Color,
+
+    /// A panel's primary text.
     pub fg: Color,
     /// Secondary text — an idle pill, a device row's label.
     pub fg_muted: Color,
@@ -162,10 +178,18 @@ pub fn palette() -> Palette {
     let opacity = panel_opacity();
     let panel_bg = with_alpha(body, opacity);
     let shadow = srgb(t.surface.shadow.components);
+    let (bar_fg, bar_fg_hover) = if t.mode.is_dark() {
+        (BAR_FG_DARK, BAR_FG_HOVER_DARK)
+    } else {
+        (BAR_FG_LIGHT, BAR_FG_HOVER_LIGHT)
+    };
     Palette {
         bar_fill: panel_bg,
         pill_hover: srgb(t.surface.hover.components),
         pill_active: scale_alpha(srgb(t.surface.hover.components), 2.2),
+
+        bar_fg,
+        bar_fg_hover,
 
         fg: srgb(t.popover.text.components),
         fg_muted: srgb(t.text.body.components),

@@ -2,8 +2,8 @@
 //!
 //! It is not allowed an edge. The bar asks the compositor for no backdrop
 //! blur, so [`fill`] is the whole of what sits behind the widgets — densest
-//! along the screen edge, thinning to nothing by the bar's lower one — and
-//! nothing ever starts or stops at a line.
+//! along the screen edge and thinning from there across the bar's whole
+//! height — and nothing ever starts or stops at a line.
 //!
 //! The ramp is a smoothstep sampled into gradient stops rather than a
 //! straight interpolation: a linear ramp leaves a Mach band exactly where it
@@ -19,13 +19,12 @@ use vello::{
 
 use crate::util::ease::fade_out;
 
-/// Fraction of the bar the background holds at full strength before it starts
-/// to thin, so the widgets keep solid ground under them while the edge itself
-/// dissolves.
-const FILL_HOLD: f32 = 0.4;
+/// Peak strength of the background, as a fraction of the body color's own
+/// alpha: the bar is a hint of ground under the widgets, not a panel.
+const FILL_STRENGTH: f32 = 0.45;
 /// Samples per ramp. Vello interpolates linearly between stops, so this is how
 /// finely the curve is followed.
-const STOPS: usize = 8;
+const STOPS: usize = 12;
 
 /// The bar's background: `color` at the top, gone by `bar_height`.
 pub fn fill(scene: &mut Scene, width: f32, bar_height: f32, color: Color) {
@@ -36,7 +35,7 @@ pub fn fill(scene: &mut Scene, width: f32, bar_height: f32, color: Color) {
 
     let bar = Rect::new(0.0, 0.0, width as f64, bar_height as f64);
     let ramp = vertical_ramp(0.0, bar_height as f64, color, |t| {
-        alpha * fade_out((t - FILL_HOLD) / (1.0 - FILL_HOLD))
+        alpha * FILL_STRENGTH * fade_out(t)
     });
     scene.fill(Fill::NonZero, Affine::IDENTITY, &ramp, None, &bar);
 }

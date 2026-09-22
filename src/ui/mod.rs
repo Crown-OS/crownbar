@@ -149,7 +149,7 @@ impl BarPainter {
 
             let icon = rt.widget.icon();
             let label = rt.widget.label();
-            let fg = theme::lerp(p.fg_muted, p.fg, lit);
+            let fg = theme::lerp(p.bar_fg, p.bar_fg_hover, lit);
             let cy = y + h * 0.5;
 
             let mut cursor = x + theme::PILL_PAD_X;
@@ -202,6 +202,7 @@ impl Default for BarPainter {
 
 fn label_style(color: Color) -> TextStyle {
     TextStyle::new(FONT_FAMILY, theme::FONT_SIZE)
+        .with_weight(theme::FONT_WEIGHT)
         .with_line_height(1.2)
         .with_color(color)
 }
