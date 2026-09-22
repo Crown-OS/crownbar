@@ -283,7 +283,11 @@ impl Panel {
     // Drawing
     // -----------------------------------------------------------------------
 
-    /// Encode the panel at `origin`, with `hovered` highlighted.
+    /// Encode the panel's rows at `origin`, with `hovered` highlighted.
+    ///
+    /// The body they sit on is [`body`]'s, drawn by whoever owns the shape —
+    /// which is not this type while the shape is travelling between two
+    /// panels of different heights.
     pub fn draw(
         &mut self,
         scene: &mut Scene,
@@ -292,23 +296,6 @@ impl Panel {
         p: &Palette,
         tcx: &mut TextContext,
     ) {
-        let panel = self.rect(origin);
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            p.panel_bg,
-            None,
-            &RoundedRect::from_rect(panel, RADIUS),
-        );
-
-        scene.stroke(
-            &Stroke::new(1.0),
-            Affine::IDENTITY,
-            p.panel_rim,
-            None,
-            &RoundedRect::from_rect(panel.inset(-0.5), RADIUS + 0.5),
-        );
-
         // Lifted out for the pass so a row can hold its own state mutably
         // while still reading the panel's geometry.
         let mut rows = std::mem::take(&mut self.rows);
@@ -727,4 +714,23 @@ fn unclamp(slot: &mut Option<Text>) {
         text.set_max_width(None);
         text.set_max_lines(None);
     }
+}
+
+/// The body every panel's rows sit on: the translucent fill the compositor's
+/// blur shows through, and the hairline that keeps its edge off the wallpaper.
+pub fn body(scene: &mut Scene, transform: Affine, rect: Rect, p: &Palette) {
+    scene.fill(
+        Fill::NonZero,
+        transform,
+        p.panel_bg,
+        None,
+        &RoundedRect::from_rect(rect, RADIUS),
+    );
+    scene.stroke(
+        &Stroke::new(1.0),
+        transform,
+        p.panel_rim,
+        None,
+        &RoundedRect::from_rect(rect.inset(-0.5), RADIUS + 0.5),
+    );
 }

@@ -7,26 +7,47 @@
 //! anywhere in it, animate without a resize round trip, and dismiss from a
 //! click outside itself — that click is an ordinary pointer event on the same
 //! surface. While no panel is up the surface draws nothing and drops both its
-//! input and blur regions, so it costs the compositor nothing while it waits.
+//! input region and its material, so it costs the compositor nothing while it
+//! waits.
 //!
 //! The bar and the popup are separate [`SurfaceHandler`]s and only a surface
 //! can repaint itself, so a click on a pill reaches the panel through
 //! [`PopupState`]: the bar bumps a version, and [`SurfaceHandler::needs_redraw`]
 //! on the popup picks it up at the end of the same event-loop iteration.
+//!
+//! # The shape, and what the compositor puts behind it
+//!
+//! The panel is one rounded rectangle whose bounds are sprung — see
+//! [`PanelMotion`]. Everything that has to agree with it is derived from the
+//! same rect on the same frame: the body this surface paints, the rows clipped
+//! inside it, and the [`MaterialSpec`] the compositor renders *under* it.
+//!
+//! That last one cannot be done here at all. What sits behind this surface
+//! belongs to other clients and a translucent surface never gets to see it, so
+//! the blur, its vibrancy, the refractive rim and the drop shadow are asked of
+//! the compositor through `crownos-background-effects`, as a rounded rect
+//! rather than a `wl_region` — a region is a list of integer rectangles and
+//! would square the corners off, which is the one place the difference shows.
+//! A compositor may withhold any of it ([`Capability`]), so when the blur is
+//! not coming the panel body is painted opaque instead: a translucent panel
+//! over an unblurred wallpaper is not readable.
 
 use std::{cell::RefCell, rc::Rc};
 
-use crownshell::{Scene, SurfaceCtx, SurfaceHandler};
+use crownshell::{Blur, Capability, MaterialSpec, Scene, Shadow, SurfaceCtx, SurfaceHandler};
 use vello::{
-    kurbo::{Affine, Point, Rect},
-    peniko::{Fill, Mix},
+    kurbo::{Affine, Point, Rect, RoundedRect, Vec2},
+    peniko::{Color, Fill, Mix},
 };
 
 use crate::{
+    animation::Clock,
     services::Services,
-    animation::{Clock, Spring},
     theme,
-    ui::panel::{self, Panel},
+    ui::{
+        morph::PanelMotion,
+        panel::{self, Panel},
+    },
     widgets::{AfterAction, PopupAction, WidgetRegistry},
 };
 
@@ -34,14 +55,15 @@ use crate::{
 const PANEL_GAP: f64 = 4.0;
 /// Smallest distance the panel keeps from the screen's left/right edges.
 const SCREEN_MARGIN: f64 = 8.0;
-/// How much of its final size the panel starts at.
-const START_SCALE: f64 = 0.94;
-/// How far above its resting place the panel starts.
-const START_RISE: f64 = 6.0;
-const SHADOW_DY: f64 = 6.0;
-const SHADOW_BLUR: f64 = 16.0;
-/// Below this the panel is treated as gone: nothing drawn, no regions set.
-const HIDDEN: f32 = 0.001;
+/// Backdrop blur asked of the compositor, in logical px.
+const BLUR_RADIUS: f64 = 32.0;
+/// Chroma multiplier on the blurred backdrop. Above 1 is the vibrancy that
+/// makes a wallpaper's color show through frosted glass rather than grey out.
+const BLUR_VIBRANCY: f64 = 1.25;
+/// Width of the compositor's refractive rim just inside the panel's edge.
+const RIM: f64 = 1.0;
+const SHADOW_DY: f64 = 8.0;
+const SHADOW_BLUR: f64 = 24.0;
 
 /// What the bar and the popup surface both read.
 ///
@@ -125,19 +147,23 @@ pub struct PopupHandler {
     /// which is how the closing animation keeps something to draw.
     shown: Option<usize>,
     panel: Option<Panel>,
-    /// Where the panel's top-left corner sits, in surface px.
+    /// Where the panel's top-left corner sits this frame, in surface px. It
+    /// follows the morphing shape rather than the resting one, so a pointer
+    /// lands on the row it is over.
     origin: Point,
-    /// 0 = dismissed, 1 = fully out. Springs between the two.
-    open: Spring,
+    motion: PanelMotion,
     clock: Clock,
     hovered: Option<usize>,
     /// Slider row the pointer is currently dragging.
     dragging: Option<usize>,
     /// The widget's contents changed and the panel has to be rebuilt.
     stale: bool,
-    /// Scratch scene for the panel, appended under the animation's transform
-    /// so a frame costs re-encoding and no text shaping.
+    /// Scratch scene for the panel's rows, appended under the animation's
+    /// transform so a frame costs re-encoding and no text shaping.
     content: Scene,
+    /// The rows of the panel being replaced, kept encoded so they can fade out
+    /// inside the shape that is on its way to the new one's bounds.
+    outgoing: Scene,
 }
 
 impl PopupHandler {
@@ -157,12 +183,13 @@ impl PopupHandler {
             shown: None,
             panel: None,
             origin: Point::ZERO,
-            open: Spring::new(0.0),
+            motion: PanelMotion::new(),
             clock: Clock::new(),
             hovered: None,
             dragging: None,
             stale: false,
             content: Scene::new(),
+            outgoing: Scene::new(),
         }
     }
 
@@ -180,6 +207,9 @@ impl PopupHandler {
         self.seen_content = content;
 
         if owner != self.shown {
+            // One panel handing over to another, rather than one being thrown
+            // out of its pill: the shape travels and the rows cross-fade.
+            let replacing = self.shown.is_some() && !self.motion.invisible();
             if let Some(prev) = self.shown
                 && let Some(rt) = self.widgets.borrow_mut().widgets.get_mut(prev)
             {
@@ -191,12 +221,15 @@ impl PopupHandler {
             self.clock.reset();
             match owner {
                 Some(idx) => {
+                    if replacing {
+                        // Last frame's rows, already encoded, become the ones
+                        // fading out — no second build, no second shaping.
+                        std::mem::swap(&mut self.content, &mut self.outgoing);
+                    }
                     self.rebuild(idx, tcx);
-                    self.open.set_target(1.0);
+                    self.motion.open(replacing);
                 }
-                None => {
-                    self.open.set_target(0.0);
-                }
+                None => self.motion.close(),
             }
         } else if (self.stale || fresh_content)
             && let Some(idx) = self.shown
@@ -219,21 +252,15 @@ impl PopupHandler {
         }
     }
 
-    /// Left-align the panel under its pill, then keep it on screen.
-    fn place(&mut self, anchor_x: f32, surface_w: f64) {
-        let Some(panel) = self.panel.as_ref() else {
-            return;
-        };
-        let width = panel.size().0 as f64;
-        let x = (anchor_x as f64 - width * 0.5).clamp(
-            SCREEN_MARGIN,
-            (surface_w - width - SCREEN_MARGIN).max(SCREEN_MARGIN),
-        );
-        self.origin = Point::new(x.round(), PANEL_GAP);
-    }
-
-    fn hidden(&self) -> bool {
-        self.shown.is_none() && self.open.position <= HIDDEN && self.open.at_rest()
+    /// Where the panel wants to be: centred under its pill, then kept on
+    /// screen. What the shape springs toward rather than where it is drawn.
+    fn target_bounds(&self, anchor_x: f64, surface_w: f64) -> Option<Rect> {
+        let (width, height) = self.panel.as_ref()?.size();
+        let (width, height) = (width as f64, height as f64);
+        let x = (anchor_x - width * 0.5)
+            .clamp(SCREEN_MARGIN, (surface_w - width - SCREEN_MARGIN).max(SCREEN_MARGIN))
+            .round();
+        Some(Rect::new(x, PANEL_GAP, x + width, PANEL_GAP + height))
     }
 
     /// Hand an action to the widget that owns the panel. Returns whether the
@@ -274,79 +301,78 @@ impl SurfaceHandler for PopupHandler {
         let size = ctx.size;
         self.seen_theme = theme::epoch();
         self.seen_services = self.services.epoch();
-        let palette = theme::palette();
-        let anchor_x = self.sync(&mut *ctx.text);
+        let anchor_x = self.sync(&mut *ctx.text) as f64;
 
-        if self.hidden() {
-            // Nothing drawn: the buffer is fully transparent. Dropping both
-            // regions is what makes a mapped surface that is holding its GPU
-            // state cost nothing while it waits.
+        if self.shown.is_none() && self.motion.invisible() {
+            // Nothing drawn: the buffer is fully transparent. Dropping the
+            // input region and the material is what makes a mapped surface
+            // that is holding its GPU state cost nothing while it waits.
             self.panel = None;
             ctx.set_input_region(&[]);
-            ctx.set_blur_region(&[]);
+            ctx.set_material(&[], &MaterialSpec::default());
             return;
         }
 
-        self.place(anchor_x, size.0 as f64);
-        let Some(rect) = self.panel.as_ref().map(|p| p.rect(self.origin)) else {
+        let Some(target) = self.target_bounds(anchor_x, size.0 as f64) else {
             return;
         };
+        self.motion.reshape(target);
+        let frame = self.motion.frame(anchor_x);
+        self.origin = frame.bounds.origin();
 
-        let progress = self.open.position.clamp(0.0, 1.0) as f64;
-        // Grow from the point on the panel's top edge nearest the pill it
-        // belongs to, so it reads as coming out of that icon.
-        let pivot = Point::new((anchor_x as f64).clamp(rect.x0, rect.x1), rect.y0);
-        let transform = Affine::translate((0.0, -START_RISE * (1.0 - progress)))
-            * Affine::scale_about(START_SCALE + (1.0 - START_SCALE) * progress, pivot);
-        let visible = transform.transform_rect_bbox(rect);
-        // Alpha leads the scale: by the time the panel is halfway out it is
-        // already solid, which reads as quicker than it is.
-        let alpha = (progress * 1.8).min(1.0) as f32;
+        let mut palette = theme::palette();
+        if !ctx.material_capabilities().contains(Capability::Blur) {
+            palette.panel_bg = theme::opaque(palette.panel_bg);
+        }
 
         // Open to any degree: the whole surface takes pointer input, so a
         // click outside the panel is a dismissal rather than a click through
         // to whatever is behind it.
         ctx.set_input_region(&[Rect::new(0.0, 0.0, size.0 as f64, size.1 as f64)]);
-        ctx.set_blur_region(&rounded_bands(visible, panel::RADIUS));
-
-        scene.draw_blurred_rounded_rect(
-            Affine::translate((0.0, SHADOW_DY)) * transform,
-            rect,
-            fade(palette.panel_shadow, alpha),
-            panel::RADIUS,
-            SHADOW_BLUR,
+        ctx.set_material(
+            &[RoundedRect::from_rect(frame.visible(), panel::RADIUS)],
+            &material(&palette, frame.alpha),
         );
 
         let Some(panel) = self.panel.as_mut() else {
             return;
         };
+        // Encoded from zero, so the rows can be pinned to whichever corner the
+        // shape has this frame rather than the one it will come to rest at.
         self.content.reset();
         panel.draw(
             &mut self.content,
-            self.origin,
+            Point::ZERO,
             self.hovered,
             &palette,
             &mut *ctx.text,
         );
-        if alpha < 1.0 {
-            // Clipped to the panel rather than the surface: a full-screen
-            // layer would make the compositor's cheapest frame its dearest.
-            let clip = visible.inflate(1.0, 1.0);
-            scene.push_layer(Fill::NonZero, Mix::Normal, alpha, Affine::IDENTITY, &clip);
-            scene.append(&self.content, Some(transform));
-            scene.pop_layer();
-        } else {
-            scene.append(&self.content, Some(transform));
+
+        let rows = frame.transform * Affine::translate(frame.bounds.origin().to_vec2());
+        if self.motion.at_rest() && frame.crossfade >= 1.0 {
+            panel::body(scene, frame.transform, frame.bounds, &palette);
+            scene.append(&self.content, Some(rows));
+            return;
         }
+
+        // Clipped to the shape rather than the surface: a full-screen layer
+        // would make the compositor's cheapest frame its dearest.
+        let clip = Clip {
+            shape: RoundedRect::from_rect(frame.bounds, panel::RADIUS),
+            transform: frame.transform,
+        };
+        scene.push_layer(Fill::NonZero, Mix::Normal, frame.alpha, clip.transform, &clip.shape);
+        panel::body(scene, frame.transform, frame.bounds, &palette);
+        if frame.crossfade < 1.0 {
+            append_faded(scene, &self.outgoing, rows, 1.0 - frame.crossfade, &clip);
+        }
+        append_faded(scene, &self.content, rows, frame.crossfade, &clip);
+        scene.pop_layer();
     }
 
     fn on_frame(&mut self, _ctx: SurfaceCtx<'_>) -> bool {
         let dt = self.clock.tick();
-        let mut busy = theme::is_animating();
-        if !self.open.at_rest() {
-            self.open.step(dt);
-            busy = true;
-        }
+        let mut busy = theme::is_animating() | self.motion.step(dt);
         if let Some(panel) = self.panel.as_mut() {
             // The header switch and the volume slider spring toward whatever
             // the last rebuild put in the spec.
@@ -455,7 +481,7 @@ impl SurfaceHandler for PopupHandler {
         }
         // Only hit-test once the panel has stopped moving: hovering a target
         // that is still sliding under the pointer is worse than not hovering.
-        let hovered = match (self.panel.as_ref(), self.open.at_rest()) {
+        let hovered = match (self.panel.as_ref(), self.motion.at_rest()) {
             (Some(panel), true) => panel.row_at(point),
             _ => None,
         };
@@ -479,29 +505,42 @@ impl SurfaceHandler for PopupHandler {
     }
 }
 
-fn fade(color: vello::peniko::Color, alpha: f32) -> vello::peniko::Color {
-    let c = color.components;
-    vello::peniko::Color::new([c[0], c[1], c[2], c[3] * alpha.clamp(0.0, 1.0)])
+/// What the compositor renders under the panel: the blurred, vibrant backdrop
+/// the body's transparency shows through, the refractive rim along its edge,
+/// and the shadow it casts. The blur comes up with the panel — a radius that
+/// tracks the fade is what keeps the wallpaper from going frosted before there
+/// is anything sitting on it.
+fn material(palette: &theme::Palette, alpha: f32) -> MaterialSpec {
+    MaterialSpec {
+        blur: Some(Blur {
+            radius: BLUR_RADIUS * alpha as f64,
+            saturation: BLUR_VIBRANCY,
+            ..Default::default()
+        }),
+        shadow: Some(Shadow {
+            radius: SHADOW_BLUR,
+            offset: Vec2::new(0.0, SHADOW_DY),
+            color: fade(palette.panel_shadow, alpha),
+        }),
+        border: RIM,
+    }
 }
 
-/// A `wl_region` is a set of rectangles, so a rounded corner cannot be
-/// described exactly. Three bands inset at the ends keep the blur from
-/// squaring off the corners, which is the only place the difference shows.
-fn rounded_bands(rect: Rect, radius: f64) -> [Rect; 3] {
-    let radius = radius.min(rect.width() / 2.0).min(rect.height() / 2.0);
-    [
-        Rect::new(
-            rect.x0 + radius,
-            rect.y0,
-            rect.x1 - radius,
-            rect.y0 + radius,
-        ),
-        Rect::new(rect.x0, rect.y0 + radius, rect.x1, rect.y1 - radius),
-        Rect::new(
-            rect.x0 + radius,
-            rect.y1 - radius,
-            rect.x1 - radius,
-            rect.y1,
-        ),
-    ]
+/// The panel's shape as vello takes a clip: the rect and the transform it is
+/// seen through, which every layer of one frame shares.
+struct Clip {
+    shape: RoundedRect,
+    transform: Affine,
+}
+
+/// One panel's rows at `alpha`, inside the shape they belong to.
+fn append_faded(scene: &mut Scene, rows: &Scene, place: Affine, alpha: f32, clip: &Clip) {
+    scene.push_layer(Fill::NonZero, Mix::Normal, alpha, clip.transform, &clip.shape);
+    scene.append(rows, Some(place));
+    scene.pop_layer();
+}
+
+fn fade(color: Color, alpha: f32) -> Color {
+    let c = color.components;
+    Color::new([c[0], c[1], c[2], c[3] * alpha.clamp(0.0, 1.0)])
 }

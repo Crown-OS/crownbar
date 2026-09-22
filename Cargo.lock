@@ -1009,6 +1009,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crownos-protocols"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.2",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
+]
+
+[[package]]
 name = "crownotify"
 version = "0.1.0"
 dependencies = [
@@ -1027,6 +1037,7 @@ dependencies = [
  "calloop 0.13.0",
  "calloop-wayland-source 0.3.0",
  "chrono",
+ "crownos-protocols",
  "env_logger",
  "log",
  "parley",

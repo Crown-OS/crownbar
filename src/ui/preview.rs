@@ -27,7 +27,7 @@ use vello::{
 
 use crate::{
     theme::{self, Palette},
-    ui::{panel::Panel, BarPainter},
+    ui::{panel::{self, Panel}, BarPainter},
     widgets::{
         clock::ClockWidget, layout::LayoutWidget, popup::{Item, PanelBuilder, Row}, BarWidget,
         BatteryState, Condition, Icon, PopupSpec, Rune, WidgetRegistry, WidgetSlot,
@@ -451,7 +451,11 @@ fn render_panels() {
         let y = top + BAR_H as f64 + 6.0;
         for (spec, hovered) in panels {
             let mut panel = Panel::new(spec, &mut tcx);
-            panel.draw(&mut scene, Point::new(x, y), hovered, &palette, &mut tcx);
+            let origin = Point::new(x, y);
+            // The body belongs to whatever owns the panel's shape — on the bar
+            // that is the morphing popup surface, here it is this.
+            panel::body(&mut scene, Affine::IDENTITY, panel.rect(origin), &palette);
+            panel.draw(&mut scene, origin, hovered, &palette, &mut tcx);
             x += panel.size().0 as f64 + MARGIN;
         }
     }

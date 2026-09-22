@@ -372,6 +372,12 @@ fn with_alpha(color: Color, alpha: f32) -> Color {
     Color::new([r, g, b, alpha.clamp(0.0, 1.0)])
 }
 
+/// `color` with no transparency left in it — for a surface that has to carry
+/// its own contrast because the compositor is not blurring what sits behind it.
+pub fn opaque(color: Color) -> Color {
+    with_alpha(color, 1.0)
+}
+
 /// `color` with its alpha multiplied — for a translucent palette slot that has
 /// to be shown at more or less than the strength the palette chose.
 pub fn scale_alpha(color: Color, factor: f32) -> Color {

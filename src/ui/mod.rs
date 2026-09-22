@@ -2,6 +2,7 @@ pub mod backdrop;
 mod calendar;
 pub mod control;
 mod icons;
+pub mod morph;
 pub mod panel;
 mod pill;
 #[cfg(test)]
