@@ -76,9 +76,12 @@ impl PopupState {
         self.content
     }
 
-    /// A service published something the open panel is showing.
+    /// A service published something the open panel is showing. With nothing
+    /// up there is nothing to restate, and the surface stays asleep.
     pub fn invalidate(&mut self) {
-        self.content += 1;
+        if self.owner.is_some() {
+            self.content += 1;
+        }
     }
 
     /// Show `idx`'s panel, hanging from a pill centred on `anchor_x`.
@@ -191,7 +194,9 @@ impl PopupHandler {
                     self.rebuild(idx, tcx);
                     self.open.set_target(1.0);
                 }
-                None => self.open.set_target(0.0),
+                None => {
+                    self.open.set_target(0.0);
+                }
             }
         } else if (self.stale || fresh_content)
             && let Some(idx) = self.shown

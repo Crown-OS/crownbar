@@ -20,8 +20,6 @@ use crate::{
     },
 };
 
-const PANEL_WIDTH: f32 = 288.0;
-
 pub struct BrightnessWidget {
     brightness: Arc<BrightnessState>,
     level: Spring,
@@ -69,8 +67,7 @@ impl BarWidget for BrightnessWidget {
             return false;
         }
         self.brightness = brightness;
-        self.level.set_target(self.brightness.level());
-        true
+        self.level.set_target(self.brightness.level())
     }
 
     fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
@@ -84,7 +81,7 @@ impl BarWidget for BrightnessWidget {
             .send(BrightnessCommand::Interest(Interest::Panel));
 
         let state = self.brightness.clone();
-        let mut panel = PanelBuilder::new(PANEL_WIDTH);
+        let mut panel = PanelBuilder::new();
         panel.row(Row::Header {
             title: "Display".into(),
             toggle: None,

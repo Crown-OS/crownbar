@@ -11,22 +11,11 @@
 
 use crate::widgets::Icon;
 
-/// A whole panel: an anchored, rounded card of rows.
+/// A whole panel: an anchored, rounded card of rows. Every panel is
+/// [`crate::ui::panel::WIDTH`] wide, so only its rows vary.
 #[derive(Clone, Debug, Default)]
 pub struct PopupSpec {
-    /// Panel width in logical px. `0` takes the default.
-    pub width: f32,
     pub rows: Vec<Row>,
-}
-
-impl PopupSpec {
-    pub fn new(width: f32) -> Self {
-        Self {
-            width,
-            rows: Vec::new(),
-        }
-    }
-
 }
 
 #[derive(Clone, Debug)]
@@ -158,12 +147,18 @@ pub struct PanelBuilder<T> {
     targets: Vec<Option<T>>,
 }
 
-impl<T> PanelBuilder<T> {
-    pub fn new(width: f32) -> Self {
+impl<T> Default for PanelBuilder<T> {
+    fn default() -> Self {
         Self {
-            spec: PopupSpec::new(width),
+            spec: PopupSpec::default(),
             targets: Vec::new(),
         }
+    }
+}
+
+impl<T> PanelBuilder<T> {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Push a row nothing can be done with — a header, a separator, a section

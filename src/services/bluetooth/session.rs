@@ -61,6 +61,7 @@ async fn connect(
     let mut device_events: Events = SelectAll::new();
     let mut discovery = None;
     let mut discovery_deadline = None;
+    let mut interest = Interest::Idle;
 
     refresh(&adapter, publish, &mut device_events).await;
 
@@ -68,7 +69,14 @@ async fn connect(
         let sleep_until = discovery_deadline.unwrap_or_else(|| time::Instant::now() + DISCOVERY_LIMIT);
         tokio::select! {
             command = commands.recv() => match command {
+                // The panel restates its interest on every rebuild, and a
+                // rebuild is what a discovered device causes — only a change
+                // is worth restarting the scan and re-reading BlueZ.
+                Some(BluetoothCommand::Interest(next)) if next == interest => {}
                 Some(command) => {
+                    if let BluetoothCommand::Interest(next) = command {
+                        interest = next;
+                    }
                     apply(&adapter, publish, command, &mut discovery, &mut discovery_deadline).await;
                     refresh(&adapter, publish, &mut device_events).await;
                 }

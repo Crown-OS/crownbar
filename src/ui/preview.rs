@@ -43,7 +43,7 @@ const BAR_H: u32 = 36;
 
 /// The Sound panel with a laptop and a pair of headphones attached.
 fn sound_panel() -> PopupSpec {
-    let mut panel = PanelBuilder::<()>::new(300.0);
+    let mut panel = PanelBuilder::<()>::new();
     panel.row(Row::Header {
         title: "Sound".into(),
         toggle: None,
@@ -78,7 +78,7 @@ fn sound_panel() -> PopupSpec {
 }
 
 fn wifi_panel() -> PopupSpec {
-    let mut panel = PanelBuilder::<()>::new(288.0);
+    let mut panel = PanelBuilder::<()>::new();
     panel.row(Row::Header {
         title: "Wi-Fi".into(),
         toggle: Some(true),
@@ -112,7 +112,7 @@ fn wifi_panel() -> PopupSpec {
 }
 
 fn bluetooth_panel() -> PopupSpec {
-    let mut panel = PanelBuilder::<()>::new(300.0);
+    let mut panel = PanelBuilder::<()>::new();
     panel.row(Row::Header {
         title: "Bluetooth".into(),
         toggle: Some(true),
@@ -147,7 +147,7 @@ fn bluetooth_panel() -> PopupSpec {
 
 /// The Battery panel, on a machine power-profiles-daemon knows about.
 fn battery_panel() -> PopupSpec {
-    let mut panel = PanelBuilder::<()>::new(268.0);
+    let mut panel = PanelBuilder::<()>::new();
     panel.row(Row::Header {
         title: "Battery".into(),
         toggle: None,

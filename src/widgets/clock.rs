@@ -54,7 +54,7 @@ impl BarWidget for ClockWidget {
         self.refresh()
     }
 
-    fn label(&self) -> String {
-        self.label.clone()
+    fn label(&self) -> &str {
+        &self.label
     }
 }

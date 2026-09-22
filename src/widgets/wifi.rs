@@ -22,8 +22,6 @@ use crate::{
 
 /// One scanning sweep, in seconds.
 const SWEEP_SECS: f32 = 1.4;
-const PANEL_WIDTH: f32 = 288.0;
-
 pub struct WifiWidget {
     network: Arc<NetworkState>,
     strength: Spring,
@@ -60,16 +58,16 @@ impl WifiWidget {
 
     /// Anything short of a carrier reads as searching — that covers scanning,
     /// associating and DHCP alike.
-    fn retarget(&mut self) {
+    fn retarget(&mut self) -> bool {
         let network = self.network.clone();
         let (strength, off, searching) = match (network.radio, &network.connected) {
             (Radio::Off | Radio::HardBlocked | Radio::Absent, _) => (0.0, 1.0, 0.0),
             (_, Some(joined)) => (joined.strength, 0.0, 0.0),
             (_, None) => (0.0, 0.0, 1.0),
         };
-        self.strength.set_target(strength);
-        self.off.set_target(off);
-        self.searching.set_target(searching);
+        self.strength.set_target(strength)
+            | self.off.set_target(off)
+            | self.searching.set_target(searching)
     }
 
     fn group(&self, panel: &mut PanelBuilder<Target>, title: &str, networks: &[WifiNetwork]) {
@@ -126,8 +124,9 @@ impl BarWidget for WifiWidget {
             return false;
         }
         self.network = network;
-        self.retarget();
-        true
+        // Only the pill's own state is worth a repaint; a change to the list
+        // behind it reaches the panel through its own invalidation.
+        self.retarget()
     }
 
     fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
@@ -137,7 +136,7 @@ impl BarWidget for WifiWidget {
             .send(NetworkCommand::Interest(Interest::Panel));
 
         let state = self.network.clone();
-        let mut panel = PanelBuilder::new(PANEL_WIDTH);
+        let mut panel = PanelBuilder::new();
         panel.row(Row::Header {
             title: "Wi-Fi".into(),
             toggle: Some(state.radio.on()),

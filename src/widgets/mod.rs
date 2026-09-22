@@ -132,8 +132,8 @@ pub trait BarWidget {
     }
 
     /// Primary label. Empty = no text in the pill.
-    fn label(&self) -> String {
-        String::new()
+    fn label(&self) -> &str {
+        ""
     }
 
     /// Icon glyph to draw inside the pill.
@@ -255,13 +255,13 @@ impl WidgetRegistry {
     }
 
     /// Hand every widget the newest snapshots. Returns whether any pill
-    /// changed appearance.
+    /// changed appearance — a snapshot that only moves what a panel shows
+    /// costs no repaint of the bar.
     pub fn sync(&mut self, services: &Services) -> bool {
         let mut dirty = false;
         for rt in self.widgets.iter_mut() {
-            if rt.widget.sync(services) {
-                dirty = true;
-            }
+            let was_visible = rt.widget.visible();
+            dirty |= rt.widget.sync(services) | (rt.widget.visible() != was_visible);
         }
         dirty
     }

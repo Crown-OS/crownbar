@@ -19,12 +19,15 @@ use crate::services::{
 };
 
 /// Leading, not trailing: a busy radio then delays a refresh by at most this
-/// rather than starving it forever.
-const DEBOUNCE: Duration = Duration::from_millis(350);
+/// rather than starving it forever. A scan makes NetworkManager talk for
+/// seconds, and one snapshot a second is more than the panel can show.
+const DEBOUNCE: Duration = Duration::from_secs(1);
 /// A daemon mid-restart hands back a stream that ends at once.
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
-/// How often to re-scan while the panel is up. Never on the bar tick.
-const SCAN_PERIOD: Duration = Duration::from_secs(10);
+/// Floor between scans, and the cadence while the panel stays up. A scan
+/// takes the radio off its channel, so this is deliberately slow: the list a
+/// panel opens on is the one the last sweep left.
+const SCAN_PERIOD: Duration = Duration::from_secs(30);
 /// Joining blocks on association and DHCP.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -55,24 +58,22 @@ async fn connect(
     let nm = NetworkManager::new().await.map_err(|e| e.to_string())?;
     let mut events = nm.network_events().await.map_err(|e| e.to_string())?;
     let mut interest = Interest::Idle;
-    let mut settled = time::Instant::now();
+    // Back-dated so the first panel scans the moment it opens; every later one
+    // waits the period out, which is what keeps a reopened panel off the radio.
+    let mut scanned = time::Instant::now() - SCAN_PERIOD;
 
-    refresh(&nm, publish).await;
+    refresh(&nm, publish, false).await;
 
     loop {
-        let scan_at = settled + SCAN_PERIOD;
+        let listing = interest == Interest::Panel;
         tokio::select! {
             command = commands.recv() => match command {
-                Some(NetworkCommand::Interest(next)) => {
-                    interest = next;
-                    if interest == Interest::Panel {
-                        scan(&nm, publish).await;
-                        settled = time::Instant::now();
-                    }
-                }
+                // Idempotent: the panel restates its interest on every rebuild,
+                // and a rebuild is exactly what a fresh snapshot causes.
+                Some(NetworkCommand::Interest(next)) => interest = next,
                 Some(command) => {
                     apply(&nm, publish, command).await;
-                    refresh(&nm, publish).await;
+                    refresh(&nm, publish, listing).await;
                 }
                 None => return Ok(()),
             },
@@ -84,13 +85,13 @@ async fn connect(
                     // snapshot of whatever it settled into.
                     time::sleep(DEBOUNCE).await;
                     while events.next().now_or_never().flatten().is_some() {}
-                    refresh(&nm, publish).await;
+                    refresh(&nm, publish, listing).await;
                 }
                 None => return Err("NetworkManager stopped answering".into()),
             },
-            _ = time::sleep_until(scan_at), if interest == Interest::Panel => {
+            _ = time::sleep_until(scanned + SCAN_PERIOD), if listing => {
                 scan(&nm, publish).await;
-                settled = time::Instant::now();
+                scanned = time::Instant::now();
             }
         }
     }
@@ -105,13 +106,14 @@ async fn scan(nm: &NetworkManager, publish: &Publisher<NetworkState>) {
     if let Err(e) = nm.scan_networks(None).await {
         log::info!("could not start a scan: {e}");
     }
-    refresh(nm, publish).await;
+    refresh(nm, publish, true).await;
 }
 
-/// Re-derive the whole snapshot. NetworkManager's events do not say what
-/// changed, and nmrs has already grouped access points by SSID, so this is one
-/// listing plus two property reads.
-async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>) {
+/// Re-derive the snapshot. NetworkManager's events do not say what changed, so
+/// this always re-reads — but the access-point listing is the dear half of it
+/// and nothing outside the panel draws it, so `listing` leaves it alone and
+/// carries the last one forward.
+async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing: bool) {
     let radio = match nm.wifi_state().await {
         Ok(state) if !state.present => Radio::Absent,
         Ok(state) if !state.hardware_enabled => Radio::HardBlocked,
@@ -128,40 +130,23 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>) {
         ip4: network.ip4_address.clone(),
     });
 
-    let mut known = Vec::new();
-    let mut others = Vec::new();
-    if radio.on() {
-        for network in nm.list_networks(None).await.unwrap_or_default() {
-            if network.is_active || joined.as_ref().is_some_and(|j| j.ssid == network.ssid) {
-                continue;
-            }
-            // A hotspot the machine itself is running is not a network to join.
-            if network.is_hotspot {
-                continue;
-            }
-            let entry = WifiNetwork {
-                strength: strength(network.strength),
-                secured: network.secured,
-                enterprise: network.is_eap,
-                weak: weak(&network),
-                known: network.known,
-                ssid: network.ssid,
-            };
-            if entry.known { &mut known } else { &mut others }.push(entry);
-        }
-        for list in [&mut known, &mut others] {
-            list.sort_by(|a, b| b.strength.total_cmp(&a.strength));
-        }
-        others.truncate(MAX_OTHER);
-    }
+    let listed = match radio.on() && listing {
+        true => Some(list(nm, joined.as_ref()).await),
+        false => None,
+    };
 
     publish.edit(|state| {
+        let (known, others) = match (&listed, radio.on()) {
+            (Some(lists), _) => lists.clone(),
+            (None, true) => (state.known.clone(), state.others.clone()),
+            (None, false) => (Vec::new(), Vec::new()),
+        };
         let next = NetworkState {
             availability: Availability::Ready,
             radio,
             connected: joined.clone(),
-            known: known.clone(),
-            others: others.clone(),
+            known,
+            others,
             scanning: false,
             hotspot: state.hotspot.clone(),
             failure: state.failure.clone(),
@@ -173,8 +158,41 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>) {
     });
 }
 
+/// Quantized to steps the icon and the rows can actually show: a resting radio
+/// still reports an RSSI that wanders a point or two, and each of those points
+/// would otherwise republish the snapshot and repaint the bar.
 fn strength(value: Option<u8>) -> f32 {
-    value.unwrap_or(0) as f32 / 100.0
+    (value.unwrap_or(0) / 5) as f32 / 20.0
+}
+
+/// In-range networks, saved apart from strangers, strongest first. nmrs has
+/// already grouped access points by SSID.
+async fn list(nm: &NetworkManager, joined: Option<&Joined>) -> (Vec<WifiNetwork>, Vec<WifiNetwork>) {
+    let mut known = Vec::new();
+    let mut others = Vec::new();
+    for network in nm.list_networks(None).await.unwrap_or_default() {
+        if network.is_active || joined.is_some_and(|j| j.ssid == network.ssid) {
+            continue;
+        }
+        // A hotspot the machine itself is running is not a network to join.
+        if network.is_hotspot {
+            continue;
+        }
+        let entry = WifiNetwork {
+            strength: strength(network.strength),
+            secured: network.secured,
+            enterprise: network.is_eap,
+            weak: weak(&network),
+            known: network.known,
+            ssid: network.ssid,
+        };
+        if entry.known { &mut known } else { &mut others }.push(entry);
+    }
+    for list in [&mut known, &mut others] {
+        list.sort_by(|a, b| b.strength.total_cmp(&a.strength));
+    }
+    others.truncate(MAX_OTHER);
+    (known, others)
 }
 
 /// WEP or TKIP. Joinable, but every other desktop flags it.

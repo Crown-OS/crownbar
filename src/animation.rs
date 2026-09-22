@@ -37,8 +37,12 @@ impl Spring {
         }
     }
 
-    pub fn set_target(&mut self, target: f32) {
+    /// Returns whether the target actually moved — what a caller uses to
+    /// decide a repaint is due.
+    pub fn set_target(&mut self, target: f32) -> bool {
+        let moved = self.target != target;
         self.target = target;
+        moved
     }
 
     /// Integrate the spring forward by `dt` seconds (clamped to MAX_DT).

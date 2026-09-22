@@ -19,8 +19,6 @@ use crate::{
     },
 };
 
-const PANEL_WIDTH: f32 = 300.0;
-
 pub struct BluetoothWidget {
     bluetooth: Arc<BluetoothState>,
     on: Spring,
@@ -72,8 +70,7 @@ impl BarWidget for BluetoothWidget {
         }
         self.bluetooth = bluetooth;
         self.on
-            .set_target(if self.bluetooth.radio.on() { 1.0 } else { 0.0 });
-        true
+            .set_target(if self.bluetooth.radio.on() { 1.0 } else { 0.0 })
     }
 
     fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
@@ -83,7 +80,7 @@ impl BarWidget for BluetoothWidget {
             .send(BluetoothCommand::Interest(Interest::Panel));
 
         let state = self.bluetooth.clone();
-        let mut panel = PanelBuilder::new(PANEL_WIDTH);
+        let mut panel = PanelBuilder::new();
         panel.row(Row::Header {
             title: "Bluetooth".into(),
             toggle: Some(state.radio.on()),

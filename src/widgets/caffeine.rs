@@ -18,8 +18,6 @@ use crate::{
     },
 };
 
-const PANEL_WIDTH: f32 = 248.0;
-
 pub struct CaffeineWidget {
     caffeine: Arc<CaffeineState>,
     on: Spring,
@@ -70,13 +68,12 @@ impl BarWidget for CaffeineWidget {
         }
         self.caffeine = caffeine;
         self.on
-            .set_target(if self.caffeine.active { 1.0 } else { 0.0 });
-        true
+            .set_target(if self.caffeine.active { 1.0 } else { 0.0 })
     }
 
     fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
         let state = self.caffeine.clone();
-        let mut panel = PanelBuilder::new(PANEL_WIDTH);
+        let mut panel = PanelBuilder::new();
         panel.row(Row::Header {
             title: "Keep Awake".into(),
             toggle: Some(state.active),

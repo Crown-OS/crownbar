@@ -98,13 +98,16 @@ pub fn app() -> Result<()> {
         // every live subscription are torn down exactly when the loop ends.
         app.loop_handle()
             .insert_source(wakeups, move |_, _, app: &mut crownshell::App| {
-                services.woke();
                 // Caffeine's inhibitor is a Wayland object on the bar's own
                 // surface, so the intent the service holds is turned into one
                 // here rather than on the runtime.
                 services.reconcile(app);
+                popup.borrow_mut().invalidate();
+                // The bar repaints for a pill that moved, not for every
+                // snapshot: a Wi-Fi list or a battery estimate that only the
+                // panel shows never reaches the compositor.
                 if widgets.borrow_mut().sync(&services) {
-                    popup.borrow_mut().invalidate();
+                    services.woke();
                 }
             })
             .map_err(|e| anyhow!("could not watch for service updates: {}", e.error))?;

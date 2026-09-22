@@ -34,7 +34,8 @@ use crate::{
 
 use super::{control, icons};
 
-pub const DEFAULT_WIDTH: f32 = 296.0;
+/// Every panel is this wide, whatever rows it holds.
+pub const WIDTH: f32 = 296.0;
 pub const RADIUS: f64 = 13.0;
 
 const FONT: &str = "system-ui";
@@ -72,7 +73,6 @@ pub struct Panel {
     /// Top edge of each row, panel-local, parallel to `spec.rows`.
     tops: Vec<f32>,
     rows: Vec<RowState>,
-    width: f32,
     height: f32,
 }
 
@@ -95,7 +95,6 @@ impl Panel {
             tops: Vec::with_capacity(spec.rows.len()),
             rows: Vec::with_capacity(spec.rows.len()),
             spec,
-            width: DEFAULT_WIDTH,
             height: 0.0,
         };
         panel.rebuild(tcx, true);
@@ -111,7 +110,7 @@ impl Panel {
     }
 
     pub fn size(&self) -> (f32, f32) {
-        (self.width, self.height)
+        (WIDTH, self.height)
     }
 
     /// The panel's own rect, given where its top-left corner sits.
@@ -119,17 +118,12 @@ impl Panel {
         Rect::new(
             origin.x,
             origin.y,
-            origin.x + self.width as f64,
+            origin.x + WIDTH as f64,
             origin.y + self.height as f64,
         )
     }
 
     fn rebuild(&mut self, tcx: &mut TextContext, initial: bool) {
-        self.width = if self.spec.width > 0.0 {
-            self.spec.width
-        } else {
-            DEFAULT_WIDTH
-        };
         self.tops.clear();
         // Reuse existing rows positionally: a row keeps its kind across a
         // repoll far more often than not, and `Text`'s setters no-op when
@@ -177,7 +171,7 @@ impl Panel {
         Rect::new(
             0.0,
             top,
-            self.width as f64,
+            WIDTH as f64,
             top + row_height(&self.spec.rows[index]) as f64,
         )
     }
@@ -233,7 +227,7 @@ impl Panel {
 
     fn switch_rect(&self, index: usize) -> Rect {
         let row = self.row_rect(index);
-        let x1 = self.width as f64 - PAD_X as f64;
+        let x1 = WIDTH as f64 - PAD_X as f64;
         let cy = row.center().y;
         Rect::new(
             x1 - control::TOGGLE_WIDTH,
@@ -250,7 +244,7 @@ impl Panel {
         Rect::new(
             (PAD_X + SLIDER_ICON_D + TEXT_GAP) as f64,
             row.y0,
-            self.width as f64 - PAD_X as f64,
+            WIDTH as f64 - PAD_X as f64,
             row.y1,
         )
     }
@@ -261,7 +255,7 @@ impl Panel {
         Rect::new(
             ROW_INSET as f64,
             bounds.y0,
-            self.width as f64 - ROW_INSET as f64,
+            WIDTH as f64 - ROW_INSET as f64,
             bounds.y1,
         )
     }
@@ -335,7 +329,7 @@ impl Panel {
                     &shifted(Rect::new(
                         PAD_X as f64,
                         y,
-                        self.width as f64 - PAD_X as f64,
+                        WIDTH as f64 - PAD_X as f64,
                         y + 1.0,
                     )),
                 );
@@ -376,7 +370,7 @@ impl Panel {
                     if hovered {
                         draw_highlight(scene, shifted(self.highlight_rect(index)), p.row_hover);
                     }
-                    let center = at((self.width - PAD_X - CHEVRON_D * 0.5) as f64, cy);
+                    let center = at((WIDTH - PAD_X - CHEVRON_D * 0.5) as f64, cy);
                     draw_rune(scene, center, CHEVRON_D, p.fg_dim, Rune::ChevronRight);
                 }
                 draw_left(
@@ -458,7 +452,7 @@ impl Panel {
         }
 
         // Trailing furniture, right to left, so the label learns where to stop.
-        let mut right = self.width - PAD_X;
+        let mut right = WIDTH - PAD_X;
         if item.chevron {
             draw_rune(
                 scene,

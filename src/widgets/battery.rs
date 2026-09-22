@@ -25,7 +25,6 @@ use crate::{
 
 /// Charge at or below which the cell goes red, while nothing is plugged in.
 const LOW_CHARGE: f32 = 0.20;
-const PANEL_WIDTH: f32 = 268.0;
 
 pub struct BatteryWidget {
     charge: Arc<BatteryState>,
@@ -69,15 +68,17 @@ impl BatteryWidget {
     }
 
     /// Point every spring at the state the newest snapshots describe.
-    fn retarget(&mut self) {
+    fn retarget(&mut self) -> bool {
         let charge = self.charge.charge.unwrap_or(Charge::EMPTY);
         let flat = charge.level <= LOW_CHARGE && !charge.charging();
-        self.level.set_target(charge.level);
-        self.charging
-            .set_target(if charge.charging() { 1.0 } else { 0.0 });
-        self.saver
-            .set_target(if self.power.profiles.is_saving() { 1.0 } else { 0.0 });
-        self.low.set_target(if flat { 1.0 } else { 0.0 });
+        self.level.set_target(charge.level)
+            | self
+                .charging
+                .set_target(if charge.charging() { 1.0 } else { 0.0 })
+            | self
+                .saver
+                .set_target(if self.power.profiles.is_saving() { 1.0 } else { 0.0 })
+            | self.low.set_target(if flat { 1.0 } else { 0.0 })
     }
 
     fn percent(&self) -> u8 {
@@ -118,14 +119,13 @@ impl BarWidget for BatteryWidget {
         }
         self.charge = charge;
         self.power = power;
-        self.retarget();
-        true
+        self.retarget()
     }
 
     fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
         let charge = self.charge.charge?;
 
-        let mut panel = PanelBuilder::new(PANEL_WIDTH);
+        let mut panel = PanelBuilder::new();
         panel.row(Row::Header {
             title: "Battery".into(),
             toggle: None,

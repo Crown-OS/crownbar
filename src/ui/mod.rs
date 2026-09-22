@@ -69,7 +69,7 @@ impl BarPainter {
                 0.0
             } else {
                 let text = &mut self.labels[i];
-                text.set_text(&label);
+                text.set_text(label);
                 text.width(tcx) as f32
             };
             let mut inner = 0.0;

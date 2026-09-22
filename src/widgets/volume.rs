@@ -19,8 +19,6 @@ use crate::{
     },
 };
 
-const PANEL_WIDTH: f32 = 300.0;
-
 pub struct VolumeWidget {
     audio: Arc<AudioState>,
     level: Spring,
@@ -48,10 +46,10 @@ impl VolumeWidget {
         }
     }
 
-    fn retarget(&mut self) {
+    fn retarget(&mut self) -> bool {
         let volume = self.audio.output_volume();
-        self.level.set_target(volume.level);
-        self.muted.set_target(if volume.muted { 1.0 } else { 0.0 });
+        self.level.set_target(volume.level)
+            | self.muted.set_target(if volume.muted { 1.0 } else { 0.0 })
     }
 
     /// The device the slider is controlling, for the glyph beside it.
@@ -114,12 +112,11 @@ impl BarWidget for VolumeWidget {
             return false;
         }
         self.audio = audio;
-        self.retarget();
-        true
+        self.retarget()
     }
 
     fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
-        let mut panel = PanelBuilder::new(PANEL_WIDTH);
+        let mut panel = PanelBuilder::new();
         panel.row(Row::Header {
             title: "Sound".into(),
             toggle: None,
