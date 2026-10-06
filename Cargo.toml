@@ -54,6 +54,11 @@ ddc-hi = { version = "0.4", default-features = false, features = ["ddc-i2c"] }
 
 [dev-dependencies]
 crowntest = { path = "../crownui/crowntest" }
+# The offscreen renderer behind `cargo run --example render`.
+impeller = { path = "../crownui/impeller", features = ["static"] }
+runtime = { path = "../crownui/runtime" }
+semantics = { path = "../crownui/semantics" }
+taffy-layout = { path = "../crownui/taffy-layout" }
 # The task executor a headless test installs, so `cx.spawn` futures run.
 view = { path = "../crownui/view" }
 
