@@ -15,6 +15,10 @@ crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc", features = ["to
 crownotify = { git = "https://github.com/crown-os/crownotify", default-features = false }
 config = { path = "./config" }
 crownos-config = { path = "../crownos-config", default-features = false }
+# crownplugind's wire contract, and the renderer that turns its trees into
+# crownui views in the bar's own palette.
+crownplugin-proto = { path = "../crownos-plugins/proto" }
+crownplugin-render = { path = "../crownos-plugins/render" }
 
 anyhow = "1.0.102"
 battery = "0.7.8"
@@ -24,7 +28,7 @@ log = "0.4"
 env_logger = "0.11"
 
 thiserror = "2.0"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
@@ -50,6 +54,8 @@ ddc-hi = { version = "0.4", default-features = false, features = ["ddc-i2c"] }
 
 [dev-dependencies]
 crowntest = { path = "../crownui/crowntest" }
+# The task executor a headless test installs, so `cx.spawn` futures run.
+view = { path = "../crownui/view" }
 
 [profile.release]
 lto = "thin"
