@@ -14,7 +14,7 @@ use tokio::time;
 
 use crate::services::{
     bus::{Commands, Publisher},
-    network::{link, Joined, NetworkCommand, NetworkState, Radio, WifiNetwork, MAX_OTHER},
+    network::{Joined, MAX_OTHER, NetworkCommand, NetworkState, Radio, WifiNetwork, link},
     status::{Availability, ErrorKind, Failure, Interest},
 };
 
@@ -122,13 +122,18 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing
         Err(_) => Radio::Unknown,
     };
 
-    let joined = nm.current_network().await.ok().flatten().map(|network| Joined {
-        ssid: network.ssid.clone(),
-        strength: strength(network.strength),
-        secured: network.secured,
-        weak: weak(&network),
-        ip4: network.ip4_address.clone(),
-    });
+    let joined = nm
+        .current_network()
+        .await
+        .ok()
+        .flatten()
+        .map(|network| Joined {
+            ssid: network.ssid.clone(),
+            strength: strength(network.strength),
+            secured: network.secured,
+            weak: weak(&network),
+            ip4: network.ip4_address.clone(),
+        });
 
     let listed = match radio.on() && listing {
         true => Some(list(nm, joined.as_ref()).await),
@@ -167,7 +172,10 @@ fn strength(value: Option<u8>) -> f32 {
 
 /// In-range networks, saved apart from strangers, strongest first. nmrs has
 /// already grouped access points by SSID.
-async fn list(nm: &NetworkManager, joined: Option<&Joined>) -> (Vec<WifiNetwork>, Vec<WifiNetwork>) {
+async fn list(
+    nm: &NetworkManager,
+    joined: Option<&Joined>,
+) -> (Vec<WifiNetwork>, Vec<WifiNetwork>) {
     let mut known = Vec::new();
     let mut others = Vec::new();
     for network in nm.list_networks(None).await.unwrap_or_default() {
@@ -235,9 +243,10 @@ async fn apply(nm: &NetworkManager, publish: &Publisher<NetworkState>, command: 
             });
             // Open, or already saved — the panel never sends anything that
             // would need a password typed here.
-            let result = time::timeout(COMMAND_TIMEOUT, nm.connect(&ssid, None, WifiSecurity::Open))
-                .await
-                .unwrap_or(Err(ConnectionError::Timeout));
+            let result =
+                time::timeout(COMMAND_TIMEOUT, nm.connect(&ssid, None, WifiSecurity::Open))
+                    .await
+                    .unwrap_or(Err(ConnectionError::Timeout));
             report(publish, result);
         }
         NetworkCommand::Disconnect => report(publish, nm.disconnect(None).await),

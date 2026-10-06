@@ -39,9 +39,11 @@ impl SettingsPane {
     /// each one gets to the pane that was asked for.
     fn fallbacks(self) -> &'static [(&'static str, &'static [&'static str])] {
         match self {
-            Self::Sound | Self::SoundInput => {
-                &[("pavucontrol", &[]), ("pavucontrol-qt", &[]), ("helvum", &[])]
-            }
+            Self::Sound | Self::SoundInput => &[
+                ("pavucontrol", &[]),
+                ("pavucontrol-qt", &[]),
+                ("helvum", &[]),
+            ],
             Self::Bluetooth => &[("blueman-manager", &[]), ("overskride", &[])],
             Self::Network => &[("nm-connection-editor", &[]), ("iwgtk", &[])],
             Self::Display => &[("wdisplays", &[])],

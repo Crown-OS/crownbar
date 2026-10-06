@@ -7,7 +7,7 @@
 
 use std::fs;
 
-use zbus::{proxy, Connection};
+use zbus::{Connection, proxy};
 
 use crate::services::brightness::display::{Display, DisplayId, Transport};
 
@@ -51,5 +51,9 @@ pub async fn set(bus: &Connection, device: &str, raw: u32) -> zbus::Result<()> {
 }
 
 fn read(path: &std::path::Path, name: &str) -> Option<u32> {
-    fs::read_to_string(path.join(name)).ok()?.trim().parse().ok()
+    fs::read_to_string(path.join(name))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }

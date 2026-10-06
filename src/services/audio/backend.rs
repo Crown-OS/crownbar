@@ -8,7 +8,7 @@
 
 use std::{
     collections::HashMap,
-    sync::{mpsc::Receiver, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc::Receiver},
 };
 
 use pipewire_native::{
@@ -29,9 +29,10 @@ use pipewire_native_spa::param::ParamType;
 
 use crate::services::{
     audio::{
+        AudioCommand, AudioState,
         device::{Device, NodeId, Role, Stream},
         props::{self, PropsUpdate},
-        route, AudioCommand, AudioState,
+        route,
     },
     bus::Publisher,
     status::Availability,
@@ -314,7 +315,9 @@ fn apply(command: AudioCommand, tracked: &Bound, publish: &Publisher<AudioState>
         }
         return;
     }
-    let Some(node) = guard.nodes.get(&id) else { return };
+    let Some(node) = guard.nodes.get(&id) else {
+        return;
+    };
     let result = match (change.gain, change.muted) {
         (Some(gain), _) => props::set_volume(node, gain),
         (_, Some(muted)) => props::set_muted(node, muted),

@@ -13,7 +13,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crownos_ipc::adapter::tokio::AsyncClient;
-use crownotify::proto::{protocol, CenterVisibility, DoNotDisturbChanged};
+use crownotify::proto::{CenterVisibility, DoNotDisturbChanged, protocol};
 use tokio::time;
 
 use crate::services::{

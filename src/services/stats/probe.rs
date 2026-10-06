@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::services::stats::hwmon::{read_number, read_string, Sensors};
+use crate::services::stats::hwmon::{Sensors, read_number, read_string};
 
 const CPUFREQ: &str = "/sys/devices/system/cpu";
 const DRM: &str = "/sys/class/drm";

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use futures_util::StreamExt;
-use zbus::{proxy, zvariant::OwnedValue, Connection};
+use zbus::{Connection, proxy, zvariant::OwnedValue};
 
 use crate::services::power::profile::{Profile, Profiles};
 

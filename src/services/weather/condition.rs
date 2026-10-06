@@ -40,7 +40,7 @@ impl Condition {
             56 | 57 | 66 | 67 => Self::Sleet,
             61 | 63 | 65 => Self::Rain,
             71 | 73 | 75 | 77 | 85 | 86 => Self::Snow,
-            80 | 81 | 82 => Self::Showers,
+            80..=82 => Self::Showers,
             95 | 96 | 99 => Self::Thunder,
             // Not a code Open-Meteo issues, but the field is a `u8` and a
             // sky the bar cannot name should read as overcast rather than as

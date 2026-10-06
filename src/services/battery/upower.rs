@@ -6,7 +6,7 @@
 //! D-Bus, so the bar rings off that and re-reads sysfs the moment it does.
 
 use futures_util::{Stream, StreamExt};
-use zbus::{proxy, Connection};
+use zbus::{Connection, proxy};
 
 const SERVICE: &str = "org.freedesktop.UPower";
 /// The aggregate device, which UPower synthesises even where there is one

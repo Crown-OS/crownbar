@@ -8,12 +8,12 @@
 
 use pipewire_native::proxy::device::Device;
 use pipewire_native_spa::{
-    param::{props::Prop, route::Route, ParamType},
+    param::{ParamType, props::Prop, route::Route},
     pod::{
+        RawPodOwned,
         builder::{Builder, ObjectBuilder},
         parser::Parser,
         types::{Id, ObjectType, PropertyFlags, Type},
-        RawPodOwned,
     },
 };
 

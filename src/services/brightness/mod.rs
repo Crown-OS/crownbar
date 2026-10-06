@@ -58,7 +58,10 @@ impl BrightnessState {
 #[derive(Clone, Debug)]
 pub enum BrightnessCommand {
     /// Perceptual level ∈ [0, 1].
-    SetLevel { id: DisplayId, level: f32 },
+    SetLevel {
+        id: DisplayId,
+        level: f32,
+    },
     /// Every display at once — the brightness keys, and the panel's master
     /// slider when there is more than one screen.
     SetAll(f32),

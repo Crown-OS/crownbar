@@ -82,8 +82,8 @@ pub fn discover() -> Sensors {
             best_gpu = rank;
             sensors.gpu = Some(sensor);
             sensors.gpu_clock = exists(chip.join("freq1_input"));
-            sensors.gpu_power = exists(chip.join("power1_average"))
-                .or_else(|| exists(chip.join("power1_input")));
+            sensors.gpu_power =
+                exists(chip.join("power1_average")).or_else(|| exists(chip.join("power1_input")));
         }
     }
     sensors

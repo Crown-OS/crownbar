@@ -135,17 +135,18 @@ pub enum NetworkCommand {
 pub type Channel = crate::services::bus::Channel<NetworkState, NetworkCommand>;
 
 pub async fn run(backend: Backend<NetworkState, NetworkCommand>) {
-    let Backend {
-        publish,
-        commands,
-    } = backend;
+    let Backend { publish, commands } = backend;
 
     // The kernel answers before NetworkManager does, and keeps answering if it
     // dies, so the icon is never wrong for lack of a daemon.
     let present = link::interface().is_some();
     publish.edit(|state| {
         state.fallback_quality = link::quality().unwrap_or(0.0);
-        state.radio = if present { Radio::Unknown } else { Radio::Absent };
+        state.radio = if present {
+            Radio::Unknown
+        } else {
+            Radio::Absent
+        };
         state.availability = if present {
             Availability::Starting
         } else {

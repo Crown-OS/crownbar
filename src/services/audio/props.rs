@@ -8,12 +8,12 @@
 
 use pipewire_native::proxy::node::Node;
 use pipewire_native_spa::{
-    param::{props::Prop, ParamType},
+    param::{ParamType, props::Prop},
     pod::{
+        RawPodOwned,
         builder::ObjectBuilder,
         parser::Parser,
         types::{PropertyFlags, Type},
-        RawPodOwned,
     },
 };
 

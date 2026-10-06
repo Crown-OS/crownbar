@@ -15,7 +15,7 @@ mod route;
 
 use std::sync::Arc;
 
-pub use device::{Device, DeviceKind, NodeId, Role, Stream, Volume, MAX_LEVEL};
+pub use device::{Device, DeviceKind, MAX_LEVEL, NodeId, Role, Stream, Volume};
 
 use crate::services::{bus::Backend, status::Availability};
 
@@ -42,8 +42,14 @@ pub enum AudioCommand {
     SetInputVolume(f32),
     SetInputMuted(bool),
     /// Any device or stream by id, for a full mixer panel.
-    SetNodeVolume { id: NodeId, level: f32 },
-    SetNodeMuted { id: NodeId, muted: bool },
+    SetNodeVolume {
+        id: NodeId,
+        level: f32,
+    },
+    SetNodeMuted {
+        id: NodeId,
+        muted: bool,
+    },
     /// By `node.name`: global ids are not stable across a server restart, and
     /// the name is what the session manager persists.
     SetDefaultOutput(String),
@@ -172,12 +178,14 @@ impl AudioState {
     }
 
     pub(crate) fn remove(&mut self, id: NodeId) -> bool {
-        let before = self.outputs.len() + self.inputs.len() + self.playback.len() + self.recording.len();
+        let before =
+            self.outputs.len() + self.inputs.len() + self.playback.len() + self.recording.len();
         self.outputs.retain(|d| d.id != id);
         self.inputs.retain(|d| d.id != id);
         self.playback.retain(|s| s.id != id);
         self.recording.retain(|s| s.id != id);
-        before != self.outputs.len() + self.inputs.len() + self.playback.len() + self.recording.len()
+        before
+            != self.outputs.len() + self.inputs.len() + self.playback.len() + self.recording.len()
     }
 
     pub(crate) fn unavailable(reason: impl Into<Arc<str>>) -> Self {

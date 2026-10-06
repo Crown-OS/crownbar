@@ -51,4 +51,3 @@ pub fn launch_first(candidates: &[(&str, &[&str])]) -> bool {
     }
     false
 }
-

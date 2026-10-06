@@ -8,8 +8,8 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use bluer::{Adapter, Address, AdapterEvent, DeviceEvent, Session};
-use futures_util::{stream::SelectAll, StreamExt};
+use bluer::{Adapter, AdapterEvent, Address, DeviceEvent, Session};
+use futures_util::{StreamExt, stream::SelectAll};
 use tokio::time;
 
 use crate::services::{
@@ -66,7 +66,8 @@ async fn connect(
     refresh(&adapter, publish, &mut device_events).await;
 
     loop {
-        let sleep_until = discovery_deadline.unwrap_or_else(|| time::Instant::now() + DISCOVERY_LIMIT);
+        let sleep_until =
+            discovery_deadline.unwrap_or_else(|| time::Instant::now() + DISCOVERY_LIMIT);
         tokio::select! {
             command = commands.recv() => match command {
                 // The panel restates its interest on every rebuild, and a
@@ -258,12 +259,14 @@ async fn link(adapter: &Adapter, address: Address, connect: bool) -> bluer::Resu
             device.disconnect().await
         }
     };
-    time::timeout(COMMAND_TIMEOUT, act).await.unwrap_or_else(|_| {
-        Err(bluer::Error {
-            kind: bluer::ErrorKind::Failed,
-            message: "timed out".into(),
+    time::timeout(COMMAND_TIMEOUT, act)
+        .await
+        .unwrap_or_else(|_| {
+            Err(bluer::Error {
+                kind: bluer::ErrorKind::Failed,
+                message: "timed out".into(),
+            })
         })
-    })
 }
 
 /// Pair, trust, then connect. Trusting is what stops BlueZ asking again on
@@ -309,7 +312,9 @@ fn report(publish: &Publisher<BluetoothState>, result: bluer::Result<()>) {
                 | bluer::ErrorKind::NotAuthorized
                 | bluer::ErrorKind::NotPermitted => ErrorKind::NotAuthorized,
                 bluer::ErrorKind::NotFound | bluer::ErrorKind::DoesNotExist => ErrorKind::NotFound,
-                bluer::ErrorKind::InProgress | bluer::ErrorKind::AlreadyConnected => ErrorKind::Busy,
+                bluer::ErrorKind::InProgress | bluer::ErrorKind::AlreadyConnected => {
+                    ErrorKind::Busy
+                }
                 bluer::ErrorKind::NotSupported => ErrorKind::Unsupported,
                 _ => ErrorKind::Backend,
             };

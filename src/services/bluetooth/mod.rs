@@ -132,10 +132,7 @@ pub enum BluetoothCommand {
 pub type Channel = crate::services::bus::Channel<BluetoothState, BluetoothCommand>;
 
 pub async fn run(backend: Backend<BluetoothState, BluetoothCommand>) {
-    let Backend {
-        publish,
-        commands,
-    } = backend;
+    let Backend { publish, commands } = backend;
 
     // rfkill needs no daemon, so the icon is right even where the rest of this
     // service never starts.

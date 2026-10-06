@@ -14,7 +14,7 @@ mod condition;
 
 use std::{sync::Arc, time::Duration};
 
-pub use api::{Current, Outlook, Place, DAYS};
+pub use api::{Current, DAYS, Outlook, Place};
 pub use condition::Condition;
 
 use tokio::time;
