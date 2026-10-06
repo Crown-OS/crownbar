@@ -4,7 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-crownos-config = { git = "https://github.com/crown-os/crownos-config" }
-
-[patch."https://github.com/crown-os/crownos-config"]
-crownos-config = { path = "../crownos-config" }
+crownconfig = { path = "../../crownui/crownconfig" }
+crownos-config = { path = "../../crownos-config", default-features = false }
