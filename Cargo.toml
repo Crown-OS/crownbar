@@ -29,6 +29,11 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 kurbo = "0.13"
+# Nightlight's gamma ramps belong to no surface, so the service holds a Wayland
+# connection of its own rather than reaching into the UI's.
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+rustix = { version = "1", features = ["fs"] }
 bluer = { version = "0.17.4", features = ["bluetoothd", "full", "id", "rfcomm"] }
 pipewire-native = "0.1.4"
 pipewire-native-spa = "0.1.4"
