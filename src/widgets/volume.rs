@@ -9,13 +9,13 @@ use std::sync::Arc;
 use crate::{
     animation::Spring,
     services::{
+        Services,
         audio::{AudioCommand, AudioState, Device, DeviceKind, MAX_LEVEL},
         link::{self, SettingsPane},
-        Services,
     },
     widgets::{
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
         popup::{Item, PanelBuilder, Row},
-        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WidgetSlot,
     },
 };
 
@@ -87,12 +87,8 @@ impl VolumeWidget {
 }
 
 impl BarWidget for VolumeWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "volume"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     fn visible(&self) -> bool {
@@ -187,7 +183,7 @@ impl BarWidget for VolumeWidget {
             PopupAction::Slide { row, .. } | PopupAction::Activate { row } => {
                 self.targets.get(row).copied().flatten()
             }
-            PopupAction::Toggle { .. } | PopupAction::Page { .. } => None,
+            PopupAction::Toggle { .. } => None,
         };
         let Some(target) = target else {
             return AfterAction::Stay;

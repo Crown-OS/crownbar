@@ -9,13 +9,13 @@ use std::sync::Arc;
 use crate::{
     animation::Spring,
     services::{
+        Interest, Services,
         bluetooth::{Address, BluetoothCommand, BluetoothState, DeviceKind},
         link::{self, SettingsPane},
-        Interest, Services,
     },
     widgets::{
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
         popup::{Item, PanelBuilder, Row},
-        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WidgetSlot,
     },
 };
 
@@ -43,12 +43,8 @@ impl BluetoothWidget {
 }
 
 impl BarWidget for BluetoothWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "bluetooth"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     /// A radio with no BlueZ behind it still gets a pill; no radio at all does
@@ -189,7 +185,7 @@ impl BarWidget for BluetoothWidget {
                     None => AfterAction::Stay,
                 }
             }
-            PopupAction::Slide { .. } | PopupAction::Page { .. } => AfterAction::Stay,
+            PopupAction::Slide { .. } => AfterAction::Stay,
         }
     }
 

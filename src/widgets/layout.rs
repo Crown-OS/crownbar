@@ -5,9 +5,9 @@
 //! the visual treatment is in place when the compositor protocol lands.
 
 use crate::{
-    services::Services,
     animation::Spring,
-    widgets::{BarWidget, Icon, WidgetSlot},
+    services::Services,
+    widgets::{BarWidget, Icon},
 };
 
 pub struct LayoutWidget {
@@ -32,12 +32,8 @@ impl Default for LayoutWidget {
 }
 
 impl BarWidget for LayoutWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "layout"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     fn icon(&self) -> Icon {

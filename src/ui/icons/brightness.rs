@@ -1,12 +1,10 @@
-use vello::{
-    Scene,
-    kurbo::{Affine, Circle, Line, Point, Rect, Stroke},
-    peniko::{Color, Fill},
-};
+use crate::ui::scene::{Fill, Scene};
+use crownui::prelude::Color;
+use kurbo::{Affine, Circle, Line, Point, Rect, Stroke};
 
 use super::{fade, lerp};
 
-pub(super) fn draw(scene: &mut Scene, b: Rect, fg: Color, level: f32) {
+pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, level: f32) {
     let cx = (b.x0 + b.x1) * 0.5;
     let cy = (b.y0 + b.y1) * 0.5;
     let r = b.width() * 0.18;

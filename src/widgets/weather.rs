@@ -10,12 +10,12 @@ use std::sync::Arc;
 use crate::{
     animation::Spring,
     services::{
-        weather::{Condition, WeatherCommand, WeatherState},
         Interest, Services,
+        weather::{Condition, WeatherCommand, WeatherState},
     },
     widgets::{
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec,
         popup::{Item, PanelBuilder, Row},
-        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, WidgetSlot,
     },
 };
 
@@ -75,12 +75,8 @@ impl Default for WeatherWidget {
 }
 
 impl BarWidget for WeatherWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "weather"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     /// No reading, no pill. A degraded service is still showing the last one,
@@ -115,9 +111,7 @@ impl BarWidget for WeatherWidget {
         let mut dirty = label != self.label;
         self.label = label;
         dirty |= self.travel_to(current.condition);
-        dirty |= self
-            .night
-            .set_target(if current.night { 1.0 } else { 0.0 });
+        dirty |= self.night.set_target(if current.night { 1.0 } else { 0.0 });
         dirty
     }
 
@@ -126,7 +120,9 @@ impl BarWidget for WeatherWidget {
         let current = state.current?;
         // A panel that is being looked at is worth a faster refresh than one
         // nobody has open.
-        services.weather.send(WeatherCommand::Interest(Interest::Panel));
+        services
+            .weather
+            .send(WeatherCommand::Interest(Interest::Panel));
 
         let mut panel = PanelBuilder::new();
         panel.row(Row::Header {
@@ -198,7 +194,9 @@ impl BarWidget for WeatherWidget {
     }
 
     fn popup_closed(&mut self, services: &Services) {
-        services.weather.send(WeatherCommand::Interest(Interest::Idle));
+        services
+            .weather
+            .send(WeatherCommand::Interest(Interest::Idle));
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {

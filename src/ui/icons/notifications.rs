@@ -5,11 +5,9 @@
 
 use std::sync::OnceLock;
 
-use vello::{
-    kurbo::{Cap, Join, Rect, Stroke},
-    peniko::{Color, Fill},
-    Scene,
-};
+use crate::ui::scene::{Fill, Scene};
+use crownui::prelude::Color;
+use kurbo::{Cap, Join, Rect, Stroke};
 
 use super::{
     fade,
@@ -30,7 +28,7 @@ fn cached(svg: &'static str, cache: &'static OnceLock<Glyph>) -> &'static Glyph 
     cache.get_or_init(|| Glyph::parse(svg))
 }
 
-pub(super) fn draw(scene: &mut Scene, b: Rect, fg: Color, open: f32, silenced: f32) {
+pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, open: f32, silenced: f32) {
     static BELL_CACHE: OnceLock<Glyph> = OnceLock::new();
     static CLAPPER_CACHE: OnceLock<Glyph> = OnceLock::new();
     static SLASH_CACHE: OnceLock<Glyph> = OnceLock::new();

@@ -6,8 +6,9 @@
 //! [`SpringProfile`] that decides how it gets there. Step the value with
 //! [`Spring::step`] when the frame ticks; check [`Spring::at_rest`] to know
 //! when to stop requesting frames.
-
-use std::time::Instant;
+//!
+//! The same profiles drive the transitions crownui runs on its render thread
+//! (a pill's hover wash, rows cross-fading), through [`SpringProfile::curve`].
 
 /// Fixed integrator sub-step.
 const SUBSTEP: f32 = 1.0 / 240.0;
@@ -29,6 +30,16 @@ pub struct SpringProfile {
 }
 
 impl SpringProfile {
+    /// The profile as crownui describes a spring: by its period and how much
+    /// of critical damping it has, rather than by stiffness and damping.
+    pub fn curve(self) -> crownui::prelude::Spring {
+        let natural = self.stiffness.sqrt();
+        crownui::prelude::Spring::new(
+            std::f32::consts::TAU / natural,
+            self.damping / (2.0 * natural),
+        )
+    }
+
     /// Critically damped, settles in roughly 200 ms. What a toggle, a slider
     /// or a hover wash wants: no overshoot, no delay.
     pub const SNAPPY: Self = Self {
@@ -114,43 +125,8 @@ impl Spring {
         (self.position - self.target).abs() < EPSILON_POS && self.velocity.abs() < EPSILON_VEL
     }
 
-    /// Put the value back at `value` with nothing in flight — for a spring
-    /// whose whole animation is starting over rather than being redirected.
-    pub fn reset(&mut self, value: f32) {
-        self.position = value;
-        self.target = value;
-        self.velocity = 0.0;
-    }
-
     pub fn snap_to_target(&mut self) {
         self.position = self.target;
         self.velocity = 0.0;
-    }
-}
-
-/// Wall-clock dt source for animation loops. `tick` returns the delta since
-/// the previous call (or a 60-Hz frame on first call), clamped to MAX_DT.
-pub struct Clock {
-    last: Option<Instant>,
-}
-
-impl Clock {
-    pub const fn new() -> Self {
-        Self { last: None }
-    }
-
-    pub fn reset(&mut self) {
-        self.last = None;
-    }
-
-    pub fn tick(&mut self) -> f32 {
-        let now = Instant::now();
-        let dt = self
-            .last
-            .map(|t| now.duration_since(t).as_secs_f32())
-            .unwrap_or(1.0 / 60.0)
-            .min(MAX_DT);
-        self.last = Some(now);
-        dt
     }
 }

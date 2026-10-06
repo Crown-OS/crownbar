@@ -1,4 +1,4 @@
-//! The boundary between a service backend and the event loop.
+//! The boundary between a service backend and the UI thread.
 //!
 //! A service is two halves joined by this module. The backend half owns a
 //! [`Publisher`] and a command receiver and lives on the tokio runtime or on a
@@ -11,20 +11,22 @@
 
 use std::sync::Arc;
 
-use crownshell::calloop::ping::Ping;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, mpsc, watch};
 
-/// The one road from any service thread back onto the event loop.
-#[derive(Clone)]
-pub struct Wake(Ping);
+/// The one road from any service thread back onto the UI thread. A wake that
+/// lands while nobody is waiting is kept, so none is ever lost between two
+/// snapshots being read.
+#[derive(Clone, Default)]
+pub struct Wake(Arc<Notify>);
 
 impl Wake {
-    pub fn new(ping: Ping) -> Self {
-        Self(ping)
+    pub fn wake(&self) {
+        self.0.notify_one();
     }
 
-    pub fn wake(&self) {
-        self.0.ping();
+    /// Resolves at the next wake, or at once if one is already pending.
+    pub async fn woken(self) {
+        self.0.notified().await;
     }
 }
 
@@ -82,6 +84,12 @@ impl<S, C> Channel<S, C> {
     /// which the snapshot's availability already says.
     pub fn send(&self, command: C) {
         let _ = self.commands.send(command);
+    }
+
+    /// A pipe of its own into the backend, for a sender that outlives any
+    /// borrow of the services — a plugin view's event sink.
+    pub fn sender(&self) -> mpsc::UnboundedSender<C> {
+        self.commands.clone()
     }
 }
 

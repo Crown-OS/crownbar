@@ -10,13 +10,13 @@ use std::sync::Arc;
 use crate::{
     animation::Spring,
     services::{
+        Interest, Services,
         link::{self, SettingsPane},
         network::{NetworkCommand, NetworkState, Radio, WifiNetwork},
-        Interest, Services,
     },
     widgets::{
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WifiState,
         popup::{Item, PanelBuilder, Row},
-        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WidgetSlot, WifiState,
     },
 };
 
@@ -97,12 +97,8 @@ impl WifiWidget {
 }
 
 impl BarWidget for WifiWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "wifi"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     fn visible(&self) -> bool {
@@ -227,7 +223,7 @@ impl BarWidget for WifiWidget {
                 }
                 None => AfterAction::Stay,
             },
-            PopupAction::Slide { .. } | PopupAction::Page { .. } => AfterAction::Stay,
+            PopupAction::Slide { .. } => AfterAction::Stay,
         }
     }
 

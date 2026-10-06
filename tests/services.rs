@@ -20,8 +20,7 @@ const SCAN: Duration = Duration::from_secs(6);
 
 #[test]
 fn the_services_describe_this_machine() {
-    let (ping, _source) = crownshell::calloop::ping::make_ping().expect("a ping");
-    let services = Services::start(Wake::new(ping)).expect("services start");
+    let services = Services::start(Wake::default()).expect("services start");
     sleep(SETTLE);
 
     audio_finds_its_devices(&services);
@@ -64,7 +63,10 @@ fn the_weather_arrives_or_says_why(services: &Services) {
                 "a current reading arrived with no daily forecast beside it"
             );
             for day in &weather.outlook {
-                eprintln!("  {} {:?} {:.0}/{:.0}", day.day, day.condition, day.high, day.low);
+                eprintln!(
+                    "  {} {:?} {:.0}/{:.0}",
+                    day.day, day.condition, day.high, day.low
+                );
                 assert!(day.high >= day.low, "{}'s high is below its low", day.day);
             }
         }
@@ -86,7 +88,11 @@ fn the_notification_centre_answers_or_says_why(services: &Services) {
     match &notifications.availability {
         Availability::Ready => eprintln!(
             "crownotify: centre {}, do not disturb {}",
-            if notifications.center_open { "open" } else { "closed" },
+            if notifications.center_open {
+                "open"
+            } else {
+                "closed"
+            },
             notifications.do_not_disturb
         ),
         other => eprintln!("crownotify unavailable: {other:?}"),
@@ -195,8 +201,7 @@ fn the_battery_reads_or_says_why(services: &Services) {
 fn a_volume_write_comes_back() {
     use crownbar::services::audio::AudioCommand;
 
-    let (ping, _source) = crownshell::calloop::ping::make_ping().expect("a ping");
-    let services = Services::start(Wake::new(ping)).expect("services start");
+    let services = Services::start(Wake::default()).expect("services start");
     sleep(SETTLE);
 
     let before = services.audio.read().output_volume();
@@ -230,8 +235,7 @@ fn a_volume_write_comes_back() {
 fn the_radios_agree_with_the_kernel() {
     use crownbar::services::{bluetooth::RadioState, network::Radio, rfkill};
 
-    let (ping, _source) = crownshell::calloop::ping::make_ping().expect("a ping");
-    let services = Services::start(Wake::new(ping)).expect("services start");
+    let services = Services::start(Wake::default()).expect("services start");
     sleep(SETTLE);
 
     let bluetooth = services.bluetooth.read();
@@ -326,8 +330,7 @@ fn the_radios_agree_with_the_kernel() {
 fn brightness_finds_every_screen_it_can_dim() {
     use crownbar::services::brightness::Transport;
 
-    let (ping, _source) = crownshell::calloop::ping::make_ping().expect("a ping");
-    let services = Services::start(Wake::new(ping)).expect("services start");
+    let services = Services::start(Wake::default()).expect("services start");
     // DDC enumeration probes every i2c bus and is slower than everything else
     // here.
     sleep(SCAN);
@@ -391,8 +394,7 @@ fn caffeine_holds_and_releases_its_intent() {
     use crownbar::services::caffeine::CaffeineCommand;
     use std::time::Duration;
 
-    let (ping, _source) = crownshell::calloop::ping::make_ping().expect("a ping");
-    let services = Services::start(Wake::new(ping)).expect("services start");
+    let services = Services::start(Wake::default()).expect("services start");
     sleep(Duration::from_millis(300));
 
     assert!(
@@ -420,7 +422,10 @@ fn caffeine_holds_and_releases_its_intent() {
         .send(CaffeineCommand::SetActiveFor(Duration::from_millis(600)));
     sleep(Duration::from_millis(200));
     let state = services.caffeine.read();
-    assert!(state.active && state.until.is_some(), "timed hold did not take");
+    assert!(
+        state.active && state.until.is_some(),
+        "timed hold did not take"
+    );
     assert!(
         state.remaining().is_some_and(|left| left.as_millis() > 0),
         "a timed hold reports no time left the moment it starts"

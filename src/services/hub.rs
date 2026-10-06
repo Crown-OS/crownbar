@@ -1,16 +1,14 @@
 //! Every service the bar owns, and the runtime they live on.
 //!
-//! `Services` is handed to the calloop source callback, which the event loop
-//! owns for its whole life — so the runtime, the PipeWire loop and every live
-//! subscription are dropped exactly when the loop ends, in that order.
-
-use std::cell::Cell;
+//! `Services` lives in the bar's root component for the life of the UI — so the
+//! runtime, the PipeWire loop and every live subscription are dropped exactly
+//! when the UI goes away, in that order.
 
 use tokio::runtime::Runtime;
 
 use crate::services::{
-    audio, battery, bluetooth, brightness, bus, caffeine, network, nightlight, notifications,
-    power, runtime, stats, weather, Wake,
+    Wake, audio, battery, bluetooth, brightness, bus, caffeine, network, nightlight, notifications,
+    power, runtime, stats, weather,
 };
 
 pub struct Services {
@@ -25,9 +23,6 @@ pub struct Services {
     pub power: power::Channel,
     pub stats: stats::Channel,
     pub weather: weather::Channel,
-    /// Bumped whenever any service publishes. The surfaces compare it in
-    /// `needs_redraw`, the way they already compare `theme::epoch`.
-    epoch: Cell<u64>,
     /// Dropping this stops every backend.
     _runtime: Runtime,
 }
@@ -85,25 +80,7 @@ impl Services {
             power,
             stats,
             weather,
-            epoch: Cell::new(0),
             _runtime: rt,
         })
-    }
-
-    /// A service published something. The snapshot is already in place; this
-    /// is only what makes the surfaces notice.
-    pub fn woke(&self) {
-        self.epoch.set(self.epoch.get().wrapping_add(1));
-    }
-
-    pub fn epoch(&self) -> u64 {
-        self.epoch.get()
-    }
-
-    /// Push whatever a service cannot do from its own thread out to the
-    /// compositor. Runs on the event loop, where `App` is reachable.
-    pub fn reconcile(&self, app: &mut crownshell::App) {
-        caffeine::reconcile(&self.caffeine, app);
-        nightlight::reconcile(&self.nightlight, app);
     }
 }

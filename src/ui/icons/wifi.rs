@@ -4,11 +4,9 @@
 
 use std::sync::OnceLock;
 
-use vello::{
-    kurbo::{Rect, Stroke},
-    peniko::Color,
-    Scene,
-};
+use crate::ui::scene::Scene;
+use crownui::prelude::Color;
+use kurbo::{Rect, Stroke};
 
 use crate::widgets::WifiState;
 
@@ -66,7 +64,7 @@ fn rune() -> &'static Rune {
     })
 }
 
-pub(super) fn draw(scene: &mut Scene, b: Rect, fg: Color, state: WifiState) {
+pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) {
     let rune = rune();
     if rune.dot.is_empty() || rune.arcs.iter().any(Glyph::is_empty) {
         return;

@@ -9,21 +9,29 @@
 //! Rows are addressed by their index in [`PopupSpec::rows`], so a widget that
 //! builds its spec from a list can map an action straight back onto it.
 
-use crate::widgets::Icon;
+use crownui::kit::CalendarDate;
+
+use crate::widgets::{Icon, Surface};
 
 /// A whole panel: an anchored, rounded card of rows. Every panel is
 /// [`crate::ui::panel::WIDTH`] wide, so only its rows vary.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PopupSpec {
     pub rows: Vec<Row>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Row {
     /// Panel title, with the optional master switch on its right.
-    Header { title: String, toggle: Option<bool> },
+    Header {
+        title: String,
+        toggle: Option<bool>,
+    },
     /// A continuous value with an icon at its left — the volume slider.
-    Slider { icon: Icon, value: f32 },
+    Slider {
+        icon: Icon,
+        value: f32,
+    },
     /// Small muted heading above a group ("Output", "Known Networks").
     Section {
         title: String,
@@ -35,56 +43,22 @@ pub enum Row {
     Item(Box<Item>),
     Separator,
     /// Footer row that hands off elsewhere ("Sound Settings…").
-    Action { label: String },
+    Action {
+        label: String,
+    },
     /// The clock's readout: the time, large, with the date beneath it.
-    Readout { primary: String, secondary: String },
-    /// A month grid. Boxed for the same reason [`Item`] is — it is an order of
-    /// magnitude larger than every other variant, and a `Vec<Row>`'s slot is
-    /// the size of its largest.
-    Calendar(Box<Month>),
+    Readout {
+        primary: String,
+        secondary: String,
+    },
+    /// A month grid opened on `today`, which pages itself.
+    Calendar(CalendarDate),
+    /// A plugin's panel, drawn from the tree crownplugind sent. It sizes
+    /// itself.
+    Remote(Surface),
 }
 
-/// One month, laid out as the six weeks [`crate::util::calendar::grid`]
-/// produces. The panel owns how it looks; this is only what it says.
-#[derive(Clone, Debug, Default)]
-pub struct Month {
-    /// "September 2026".
-    pub title: String,
-    /// Six weeks of cells, Monday first.
-    pub days: Vec<Day>,
-}
-
-/// One cell of the grid. `Copy` and free of allocation: the grid is rebuilt
-/// every second the panel is open, and forty-two `String`s a second to print
-/// the numbers 1 to 31 would be forty-two allocations too many.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Day {
-    pub day: u8,
-    /// False for the lead-in and lead-out days of the neighbouring months.
-    pub in_month: bool,
-    pub today: bool,
-    pub weekend: bool,
-}
-
-impl Row {
-    /// Whether the pointer can activate this row at all.
-    pub fn is_interactive(&self) -> bool {
-        match self {
-            Row::Item(item) => item.enabled,
-            Row::Action { .. } => true,
-            Row::Section { chevron, .. } => *chevron,
-            // A calendar is acted on through its arrows, which are hit-tested
-            // separately — the grid itself is not a row target.
-            Row::Header { .. }
-            | Row::Slider { .. }
-            | Row::Separator
-            | Row::Readout { .. }
-            | Row::Calendar(_) => false,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Item {
     pub icon: Icon,
     /// Draw the icon inside a filled circle, the way macOS marks a device.
@@ -167,8 +141,6 @@ pub enum PopupAction {
     },
     /// An item, section chevron or action row was clicked.
     Activate { row: usize },
-    /// A calendar's back or forward arrow was clicked. `months` is -1 or +1.
-    Page { row: usize, months: i32 },
 }
 
 /// Builds a [`PopupSpec`] while recording what each row *means* to the widget

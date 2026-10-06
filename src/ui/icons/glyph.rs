@@ -1,7 +1,7 @@
 //! SVG-authored icon geometry. A glyph is parsed and measured once, then
 //! traced to any progress along its own length so an icon can draw itself on.
 
-use vello::kurbo::{Affine, BezPath, ParamCurve, ParamCurveArclen, Point, Rect, Shape};
+use kurbo::{Affine, BezPath, ParamCurve, ParamCurveArclen, Point, Rect, Shape};
 
 const ARCLEN_ACCURACY: f64 = 0.01;
 

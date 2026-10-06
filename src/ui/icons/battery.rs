@@ -14,19 +14,19 @@
 
 use std::sync::OnceLock;
 
-use crownshell::{Text, TextContext, TextStyle};
-use vello::{
-    kurbo::{Affine, BezPath, Cap, Line, Point, Rect, RoundedRect, Shape, Stroke},
-    peniko::{Color, Fill},
-    Scene,
-};
+use crownui::prelude::Color;
+use kurbo::{Affine, BezPath, Cap, Line, Point, Rect, RoundedRect, Shape, Stroke};
 
 use crate::{
-    theme::{self, Palette},
+    theme::{self, Palette, opaque},
     widgets::BatteryState,
 };
 
 use super::{fade, glyph};
+use crate::{
+    ui::scene::{Fill, Scene},
+    util::capsule::capsule_left_of,
+};
 
 // Geometry, in units of the body's height — the one number a caller picks.
 const BODY_W: f64 = 1.81;
@@ -46,7 +46,7 @@ const SHELL_W: f64 = BODY_W + NUB_GAP + NUB_W;
 
 /// Height of the cell on the bar. A glyph set beside text rather than a square
 /// icon, so it takes a height of its own instead of [`super::ICON_BOX`].
-pub(super) const BAR_HEIGHT: f64 = 16.0;
+pub(super) const BAR_HEIGHT: f64 = 18.0;
 
 /// How much of the foreground the empty track keeps.
 const TRACK_ALPHA: f32 = 0.36;
@@ -54,11 +54,14 @@ const TRACK_ALPHA: f32 = 0.36;
 /// take before the size is fitted down to them.
 const DIGITS_SIZE: f64 = 0.90;
 const DIGITS_MAX_W: f64 = 0.78;
-const DIGITS_WEIGHT: f32 = 700.0;
+pub(super) const DIGITS_WEIGHT: u16 = 600;
+/// Inter's semibold figures are tabular at about this fraction of an em, which
+/// is what fits three of them inside the body without shaping them first.
+const DIGIT_ADVANCE: f64 = 0.62;
 
 /// Smallest an accessory is drawn as it fades in, so it grows out of the
 /// terminal rather than materialising at full size.
-const ACCESSORY_MIN_SCALE: f64 = 0.6;
+const ACCESSORY_MIN_SCALE: f64 = 1.0;
 const BOLT: &str = "M0.62 0 L0.10 0.58 L0.44 0.58 L0.36 1 L0.90 0.40 L0.55 0.40 Z";
 const PLUS_STROKE: f64 = 0.18;
 
@@ -71,109 +74,58 @@ pub(super) fn advance(state: BatteryState) -> f32 {
 
 /// The cell on its own, monochrome and without a reading — a device row's
 /// battery, where the percentage is a column of its own.
-pub(super) fn draw(scene: &mut Scene, b: Rect, fg: Color, state: BatteryState) {
+pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, state: BatteryState) {
     let height = b.height().min(b.width() / SHELL_W);
     let left = b.x0 + (b.width() - SHELL_W * height) * 0.5;
     Cell::new(left, b.center().y, height).shell(scene, state.level, fg, fade(fg, TRACK_ALPHA));
 }
 
-/// The bar's battery, which prints its reading inside the cell.
-///
-/// Retained because the two shaped runs are the expensive part and the reading
-/// changes once a percent, not once a frame.
-pub struct Readout {
-    runs: [Text; 2],
-    shown: Option<u8>,
+/// Where the bar's reading sits on the cell and in which inks. The digits are
+/// text laid over the canvas, shaped once a percent rather than once a frame;
+/// each copy is clipped to one side of the charge line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ReadoutPlan {
+    /// The cell's body, relative to the glyph's left edge and vertical centre.
+    pub body: Rect,
+    /// Where the charge stops, in the same space.
+    pub edge: f64,
+    /// Digit size that keeps three of them inside the body.
+    pub font_size: f32,
+    /// Ink over the charge, then over the empty track.
+    pub inks: [Color; 2],
 }
 
-impl Readout {
-    pub fn new() -> Self {
-        Self {
-            runs: std::array::from_fn(|_| Text::styled("", digit_style(0.0))),
-            shown: None,
-        }
-    }
-
-    /// Draw the cell from `origin`, its left edge and vertical centre. `fg` is
-    /// the pill's foreground, which the cell fills with until a state pulls it
-    /// toward a status colour.
-    pub fn draw(
-        &mut self,
-        scene: &mut Scene,
-        tcx: &mut TextContext,
-        origin: Point,
-        state: BatteryState,
-        fg: Color,
-        p: &Palette,
-    ) {
-        let cy = origin.y;
-        let cell = Cell::new(origin.x, cy, BAR_HEIGHT);
-        let charge = charge_color(state, fg, p);
-        let track = fade(fg, TRACK_ALPHA);
-        cell.shell(scene, state.level, charge, track);
-
-        self.shape(state.readout, tcx);
-        let width = self.runs[0].width(tcx);
-        let height = self.runs[0].height(tcx);
-        let body = cell.body.rect();
-        let origin = Point::new(
-            (body.center().x - width * 0.5).round(),
-            (cy - height * 0.5).round(),
-        );
-        // What each half of the reading sits on: the fill on one side, the
-        // track composited over the bar on the other.
-        let over_track = theme::lerp(opaque(p.bar_fill), fg, TRACK_ALPHA);
-        let edge = cell.charge_edge(state.level);
-        let halves = [
-            (Rect::new(body.x0, cy - BAR_HEIGHT, edge, cy + BAR_HEIGHT), charge),
-            (
-                Rect::new(edge, cy - BAR_HEIGHT, body.x1, cy + BAR_HEIGHT),
-                over_track,
-            ),
-        ];
-        for (run, (clip, under)) in self.runs.iter_mut().zip(halves) {
-            if clip.width() <= 0.0 {
-                continue;
-            }
-            tint(run, ink_on(under, fg, p));
-            scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &clip);
-            run.draw(tcx, scene, origin);
-            scene.pop_layer();
-        }
-
-        cell.accessory(scene, state, fg);
-    }
-
-    /// Point both runs at `pct`, at a size that fits the body.
-    fn shape(&mut self, pct: u8, tcx: &mut TextContext) {
-        if self.shown == Some(pct) {
-            return;
-        }
-        self.shown = Some(pct);
-        let reading = pct.to_string();
-        for run in &mut self.runs {
-            run.set_text(&reading);
-        }
-        let size = BAR_HEIGHT * DIGITS_SIZE;
-        self.resize(size);
-        let max = BAR_HEIGHT * BODY_W * DIGITS_MAX_W;
-        let width = self.runs[0].width(tcx);
-        if width > max {
-            self.resize(size * max / width);
-        }
-    }
-
-    fn resize(&mut self, size: f64) {
-        for run in &mut self.runs {
-            let color = run.style().color;
-            run.set_style(digit_style(size as f32).with_color(color));
-        }
-    }
+/// The bar's battery without its reading: shell, charge and accessory, from
+/// `origin`, the glyph's left edge and vertical centre.
+pub(super) fn draw_bar(
+    scene: &mut Scene<'_>,
+    origin: Point,
+    state: BatteryState,
+    fg: Color,
+    p: &Palette,
+) {
+    let cell = Cell::new(origin.x, origin.y, BAR_HEIGHT);
+    cell.shell(
+        scene,
+        state.level,
+        charge_color(state, fg, p),
+        fade(fg, TRACK_ALPHA),
+    );
+    cell.accessory(scene, state, fg);
 }
 
-impl Default for Readout {
-    fn default() -> Self {
-        Self::new()
+pub fn readout(state: BatteryState, fg: Color, p: &Palette) -> ReadoutPlan {
+    let cell = Cell::new(0.0, 0.0, BAR_HEIGHT);
+    let charge = charge_color(state, fg, p);
+    let over_track = theme::lerp(opaque(p.bar_fill), fg, TRACK_ALPHA);
+    let digits = state.readout.to_string().len() as f64;
+    let size = BAR_HEIGHT * DIGITS_SIZE;
+    let max = BAR_HEIGHT * BODY_W * DIGITS_MAX_W;
+    ReadoutPlan {
+        body: cell.body.rect(),
+        edge: cell.charge_edge(state.level),
+        font_size: (size.min(size * max / (digits * DIGIT_ADVANCE * size))) as f32,
+        inks: [ink_on(charge, fg, p), ink_on(over_track, fg, p)],
     }
 }
 
@@ -218,7 +170,7 @@ impl Cell {
 
     /// Track, nub, and the charge clipped to the body — so the charge line is
     /// square while the far end keeps the shell's radius.
-    fn shell(&self, scene: &mut Scene, level: f32, charge: Color, track: Color) {
+    fn shell(&self, scene: &mut Scene<'_>, level: f32, charge: Color, track: Color) {
         scene.fill(Fill::NonZero, Affine::IDENTITY, track, None, &self.body);
         scene.fill(Fill::NonZero, Affine::IDENTITY, track, None, &self.nub);
         let body = self.body.rect();
@@ -226,20 +178,13 @@ impl Cell {
         if edge <= body.x0 {
             return;
         }
-        scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &self.body);
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            charge,
-            None,
-            &Rect::new(body.x0, body.y0, edge, body.y1),
-        );
-        scene.pop_layer();
+        let filled = capsule_left_of(body, edge);
+        scene.fill(Fill::NonZero, Affine::IDENTITY, charge, None, &filled);
     }
 
     /// The bolt, or the plus that stands for a saving profile. Plugging in
     /// wins: a machine that is charging says so first.
-    fn accessory(&self, scene: &mut Scene, state: BatteryState, fg: Color) {
+    fn accessory(&self, scene: &mut Scene<'_>, state: BatteryState, fg: Color) {
         let bolt = state.charging.clamp(0.0, 1.0);
         let plus = (state.saver * (1.0 - bolt)).clamp(0.0, 1.0);
         let cx = self.nub.rect().x1 + (ACCESSORY_GAP + ACCESSORY_W * 0.5) * self.height;
@@ -298,28 +243,5 @@ fn ink_on(under: Color, fg: Color, p: &Palette) -> Color {
 }
 
 fn luma(c: Color) -> f32 {
-    let [r, g, b, _] = c.components;
-    0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
-fn opaque(c: Color) -> Color {
-    let [r, g, b, _] = c.components;
-    Color::new([r, g, b, 1.0])
-}
-
-/// Re-style only on a real change: `Text` re-lays-out when it is handed a
-/// style, and the ink is resolved every frame because a theme change fades.
-fn tint(run: &mut Text, color: Color) {
-    if run.style().color == color {
-        return;
-    }
-    let mut style = run.style().clone();
-    style.color = color;
-    run.set_style(style);
-}
-
-fn digit_style(size: f32) -> TextStyle {
-    TextStyle::new(crate::ui::FONT_FAMILY, size)
-        .with_weight(DIGITS_WEIGHT)
-        .with_line_height(1.0)
+    0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
 }

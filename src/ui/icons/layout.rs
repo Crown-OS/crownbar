@@ -1,10 +1,8 @@
-use vello::{
-    Scene,
-    kurbo::{Affine, Rect, RoundedRect, Stroke, Vec2},
-    peniko::Color,
-};
+use crate::ui::scene::Scene;
+use crownui::prelude::Color;
+use kurbo::{Affine, Rect, RoundedRect, Stroke, Vec2};
 
-pub(super) fn draw(scene: &mut Scene, b: Rect, fg: Color, tiled: f32) {
+pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, tiled: f32) {
     let t = tiled.clamp(0.0, 1.0) as f64;
     let stroke = Stroke::new(1.2);
 

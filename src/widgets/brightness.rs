@@ -10,14 +10,14 @@ use std::sync::Arc;
 use crate::{
     animation::Spring,
     services::{
+        Interest, Services,
         brightness::{BrightnessCommand, BrightnessState, DisplayId},
         link::{self, SettingsPane},
         nightlight::{NightLightCommand, NightLightState},
-        Interest, Services,
     },
     widgets::{
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
         popup::{Item, PanelBuilder, Row},
-        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WidgetSlot,
     },
 };
 
@@ -47,12 +47,8 @@ impl BrightnessWidget {
 }
 
 impl BarWidget for BrightnessWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "brightness"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     fn visible(&self) -> bool {
@@ -171,11 +167,9 @@ impl BarWidget for BrightnessWidget {
                         .send(BrightnessCommand::SetLevel { id, level: value }),
                     // Dragging the warmth slider turns the tint on, which is
                     // how most people will switch it on in the first place.
-                    Some(Target::NightLight) => services
-                        .nightlight
-                        .send(NightLightCommand::SetKelvin(NightLightState::kelvin_at(
-                            value,
-                        ))),
+                    Some(Target::NightLight) => services.nightlight.send(
+                        NightLightCommand::SetKelvin(NightLightState::kelvin_at(value)),
+                    ),
                     _ => {}
                 }
                 AfterAction::Stay
@@ -193,7 +187,6 @@ impl BarWidget for BrightnessWidget {
                 services.nightlight.send(NightLightCommand::SetActive(on));
                 AfterAction::Stay
             }
-            PopupAction::Page { .. } => AfterAction::Stay,
         }
     }
 

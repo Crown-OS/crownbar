@@ -3,8 +3,8 @@
 //! Unlike every other service this one has nothing to read: no daemon owns the
 //! answer, the bar does. What it owns is the *intent* — on, off, or on until a
 //! deadline — and the expiry timer behind it. Turning that intent into a
-//! Wayland inhibitor happens on the event loop, in [`reconcile`], because the
-//! object has to be created against the bar's own surface.
+//! Wayland inhibitor happens on the UI thread, by way of [`reconcile`],
+//! because the object has to be created against the bar's own surface.
 //!
 //! The mechanism is `zwp_idle_inhibit_manager_v1`. It is held by an object
 //! rather than by a subprocess or a daemon call, so a bar that crashes cannot
@@ -15,7 +15,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crownshell::App;
 use tokio::time;
 
 use crate::services::{bus::Backend, status::Availability};
@@ -125,16 +124,15 @@ fn apply(publish: &crate::services::bus::Publisher<CaffeineState>, command: Caff
     });
 }
 
-/// Make the compositor agree with the intent.
+/// Tell the service whether the compositor can inhibit idling, and return
+/// whether the bar's surface should hold an inhibitor right now.
 ///
-/// Runs on the event loop, where `App` lives. Both halves are idempotent, so
-/// this is safe to call on every wake-up however little changed.
-pub fn reconcile(channel: &Channel, app: &mut App) {
+/// Idempotent, so the UI calls it on every wake-up however little changed.
+#[must_use]
+pub fn reconcile(channel: &Channel, supported: bool) -> bool {
     let state = channel.read();
     if matches!(state.availability, Availability::Starting) {
-        channel.send(CaffeineCommand::Supported(app.supports_idle_inhibit()));
+        channel.send(CaffeineCommand::Supported(supported));
     }
-    if state.active != app.is_idle_inhibited() {
-        app.set_idle_inhibited(state.active);
-    }
+    state.active
 }

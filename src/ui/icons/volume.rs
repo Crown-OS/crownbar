@@ -5,11 +5,9 @@
 
 use std::sync::OnceLock;
 
-use vello::{
-    Scene,
-    kurbo::{Cap, Join, Rect, Stroke},
-    peniko::Color,
-};
+use crate::ui::scene::Scene;
+use crownui::prelude::Color;
+use kurbo::{Cap, Join, Rect, Stroke};
 
 use super::{
     fade,
@@ -49,7 +47,7 @@ fn speaker() -> &'static Speaker {
     })
 }
 
-pub(super) fn draw(scene: &mut Scene, b: Rect, fg: Color, level: f32, muted: f32) {
+pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, level: f32, muted: f32) {
     let speaker = speaker();
     if speaker.cone.is_empty() {
         return;

@@ -13,9 +13,9 @@
 
 pub mod audio;
 pub mod battery;
+pub mod bluetooth;
 pub mod brightness;
 pub mod caffeine;
-pub mod bluetooth;
 pub mod network;
 pub mod nightlight;
 pub mod notifications;
@@ -26,8 +26,8 @@ pub mod weather;
 pub mod link;
 
 mod bus;
-pub mod rfkill;
 mod hub;
+pub mod rfkill;
 mod runtime;
 mod status;
 

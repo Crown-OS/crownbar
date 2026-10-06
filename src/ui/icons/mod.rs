@@ -1,6 +1,6 @@
 //! Procedural icon rendering. Each icon is sized to a 16 × 16 logical box;
 //! the renderer hands us a center point and the box width, we draw vectors
-//! directly into the Vello scene.
+//! into a canvas's draw list through [`Scene`].
 //!
 //! Several icons accept smoothly-interpolated state floats (∈ [0, 1]) so the
 //! widget can spring a value between two extremes (e.g. tiled ↔ floating,
@@ -18,13 +18,29 @@ mod volume;
 mod weather;
 mod wifi;
 
-use vello::{kurbo::Rect, peniko::Color, Scene};
+use crate::ui::scene::Scene;
+use crownui::prelude::Color;
+use kurbo::Rect;
 
 use crate::{theme::Palette, widgets::Icon};
 
-pub use battery::Readout as BatteryReadout;
+pub use battery::{ReadoutPlan, readout as battery_readout};
 
 pub const ICON_BOX: f32 = 22.0;
+/// Weight of the battery's reading, which the pill shapes as text.
+pub const READOUT_WEIGHT: u16 = battery::DIGITS_WEIGHT;
+
+/// The bar's battery cell from `origin`, its left edge and vertical centre,
+/// without the reading the pill lays over it.
+pub fn draw_battery(
+    scene: &mut Scene<'_>,
+    origin: kurbo::Point,
+    state: crate::widgets::BatteryState,
+    fg: Color,
+    p: &Palette,
+) {
+    battery::draw_bar(scene, origin, state, fg, p);
+}
 
 /// How much room `icon` takes along a pill. Square for all but the battery,
 /// whose accessory grows the glyph as it fades in.
@@ -38,13 +54,21 @@ pub fn advance(icon: Icon) -> f32 {
 /// Dispatch + draw one icon in the bar's standard [`ICON_BOX`], centered at
 /// (cx, cy). `fg` is the foreground stroke/fill color; the icon picks accent
 /// colors from it.
-pub fn draw(scene: &mut Scene, icon: Icon, cx: f32, cy: f32, fg: Color, p: &Palette) {
+pub fn draw(scene: &mut Scene<'_>, icon: Icon, cx: f32, cy: f32, fg: Color, p: &Palette) {
     draw_sized(scene, icon, cx, cy, ICON_BOX, fg, p)
 }
 
 /// As [`draw`], in a box of `size` rather than [`ICON_BOX`]. The popup panels
 /// draw the same icons smaller than the bar does.
-pub fn draw_sized(scene: &mut Scene, icon: Icon, cx: f32, cy: f32, size: f32, fg: Color, p: &Palette) {
+pub fn draw_sized(
+    scene: &mut Scene<'_>,
+    icon: Icon,
+    cx: f32,
+    cy: f32,
+    size: f32,
+    fg: Color,
+    p: &Palette,
+) {
     let bounds = Rect::new(
         (cx - size * 0.5) as f64,
         (cy - size * 0.5) as f64,
@@ -56,7 +80,7 @@ pub fn draw_sized(scene: &mut Scene, icon: Icon, cx: f32, cy: f32, size: f32, fg
 
 /// As [`draw`], into an explicit box. Useful where the glyph is not square —
 /// the small battery cell on a device row.
-pub fn draw_in(scene: &mut Scene, icon: Icon, bounds: Rect, fg: Color, p: &Palette) {
+pub fn draw_in(scene: &mut Scene<'_>, icon: Icon, bounds: Rect, fg: Color, p: &Palette) {
     match icon {
         Icon::None => {}
         Icon::Wifi(state) => wifi::draw(scene, bounds, fg, state),
@@ -80,8 +104,10 @@ pub fn draw_in(scene: &mut Scene, icon: Icon, bounds: Rect, fg: Color, p: &Palet
 }
 
 pub(super) fn fade(c: Color, alpha: f32) -> Color {
-    let comp = c.components;
-    Color::new([comp[0], comp[1], comp[2], comp[3] * alpha.clamp(0.0, 1.0)])
+    Color {
+        a: c.a * alpha.clamp(0.0, 1.0),
+        ..c
+    }
 }
 
 pub(super) fn lerp(a: f32, b: f32, t: f32) -> f32 {

@@ -4,11 +4,9 @@
 
 use std::sync::OnceLock;
 
-use vello::{
-    Scene,
-    kurbo::{Rect, Stroke},
-    peniko::Color,
-};
+use crate::ui::scene::Scene;
+use crownui::prelude::Color;
+use kurbo::{Rect, Stroke};
 
 use super::{
     fade,
@@ -28,7 +26,7 @@ fn glyph() -> &'static Glyph {
     CACHE.get_or_init(|| Glyph::parse(GLYPH_SVG))
 }
 
-pub(super) fn draw(scene: &mut Scene, b: Rect, fg: Color, on: f32) {
+pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, on: f32) {
     let glyph = glyph();
     if glyph.is_empty() {
         return;

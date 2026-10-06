@@ -17,11 +17,9 @@
 
 use std::sync::OnceLock;
 
-use vello::{
-    kurbo::{Affine, Cap, Circle, Join, Point, Rect, Stroke},
-    peniko::{Color, Fill},
-    Scene,
-};
+use crate::ui::scene::{Fill, Scene};
+use crownui::{ext::Brush, prelude::Color};
+use kurbo::{Affine, Cap, Circle, Join, Point, Rect, Stroke};
 
 use crate::{
     theme::{Stops, WeatherColors},
@@ -108,7 +106,7 @@ glyphs! {
 /// of each other, so what the eye sees is the rain fading out and the sun
 /// fading in, which is the change that actually happened.
 pub(super) fn draw(
-    scene: &mut Scene,
+    scene: &mut Scene<'_>,
     bounds: Rect,
     from: Condition,
     to: Condition,
@@ -141,7 +139,7 @@ struct Painter<'a> {
 }
 
 impl Painter<'_> {
-    fn condition(&self, scene: &mut Scene, condition: Condition, alpha: f32) {
+    fn condition(&self, scene: &mut Scene<'_>, condition: Condition, alpha: f32) {
         use Condition::*;
         match condition {
             Clear => self.luminary(scene, alpha, false),
@@ -180,14 +178,14 @@ impl Painter<'_> {
         }
     }
 
-    fn raining(&self, scene: &mut Scene, fall: &Glyph, alpha: f32) {
+    fn raining(&self, scene: &mut Scene<'_>, fall: &Glyph, alpha: f32) {
         self.fill(scene, cloud(), self.colors.cloud, alpha);
         self.stroke(scene, fall, self.colors.water, 1.8, alpha);
     }
 
     /// The sun, the moon, or the point between them. `small` is the pose that
     /// shares its box with a cloud.
-    fn luminary(&self, scene: &mut Scene, alpha: f32, small: bool) {
+    fn luminary(&self, scene: &mut Scene<'_>, alpha: f32, small: bool) {
         let day = alpha * (1.0 - self.night);
         let night = alpha * self.night;
         if day > 0.0 {
@@ -212,11 +210,11 @@ impl Painter<'_> {
     }
 
     /// Haze is a night pose whatever the hour, so its moon does not fade.
-    fn moon_only(&self, scene: &mut Scene, alpha: f32) {
+    fn moon_only(&self, scene: &mut Scene<'_>, alpha: f32) {
         self.fill(scene, moon_small(), self.colors.moon, alpha);
     }
 
-    fn fill(&self, scene: &mut Scene, glyph: &Glyph, stops: Stops, alpha: f32) {
+    fn fill(&self, scene: &mut Scene<'_>, glyph: &Glyph, stops: Stops, alpha: f32) {
         if glyph.is_empty() || alpha <= 0.0 {
             return;
         }
@@ -229,7 +227,7 @@ impl Painter<'_> {
         );
     }
 
-    fn stroke(&self, scene: &mut Scene, glyph: &Glyph, stops: Stops, width: f64, alpha: f32) {
+    fn stroke(&self, scene: &mut Scene<'_>, glyph: &Glyph, stops: Stops, width: f64, alpha: f32) {
         if glyph.is_empty() || alpha <= 0.0 {
             return;
         }
@@ -251,7 +249,7 @@ impl Painter<'_> {
 
     /// The pair as a top-to-bottom gradient down the view box, faded to
     /// `alpha` so a cross-fade can pass through it.
-    fn brush(&self, stops: Stops, alpha: f32) -> vello::peniko::Gradient {
+    fn brush(&self, stops: Stops, alpha: f32) -> Brush {
         Stops {
             start: fade(stops.start, alpha),
             end: fade(stops.end, alpha),
@@ -261,6 +259,8 @@ impl Painter<'_> {
 }
 
 fn fade(color: Color, alpha: f32) -> Color {
-    let c = color.components;
-    Color::new([c[0], c[1], c[2], c[3] * alpha.clamp(0.0, 1.0)])
+    Color {
+        a: color.a * alpha.clamp(0.0, 1.0),
+        ..color
+    }
 }

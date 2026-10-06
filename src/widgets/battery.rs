@@ -12,14 +12,14 @@ use std::sync::Arc;
 use crate::{
     animation::Spring,
     services::{
+        Services,
         battery::{BatteryState, Charge},
         link::{self, SettingsPane},
         power::{PowerCommand, PowerState, Profile},
-        Services,
     },
     widgets::{
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
         popup::{Item, PanelBuilder, Row},
-        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WidgetSlot,
     },
 };
 
@@ -75,9 +75,11 @@ impl BatteryWidget {
             | self
                 .charging
                 .set_target(if charge.charging() { 1.0 } else { 0.0 })
-            | self
-                .saver
-                .set_target(if self.power.profiles.is_saving() { 1.0 } else { 0.0 })
+            | self.saver.set_target(if self.power.profiles.is_saving() {
+                1.0
+            } else {
+                0.0
+            })
             | self.low.set_target(if flat { 1.0 } else { 0.0 })
     }
 
@@ -87,12 +89,8 @@ impl BatteryWidget {
 }
 
 impl BarWidget for BatteryWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "battery"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     fn visible(&self) -> bool {

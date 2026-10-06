@@ -6,19 +6,24 @@ pub mod clock;
 pub mod layout;
 pub mod notifications;
 pub mod popup;
+pub mod remote;
 pub mod volume;
 pub mod weather;
 pub mod wifi;
 
-pub use popup::{AfterAction, PopupAction, PopupSpec};
+mod arrangement;
 
-use crate::{animation::Spring, services::Services};
+pub use arrangement::Arrangement;
+pub use popup::{AfterAction, PopupAction, PopupSpec};
+pub use remote::Surface;
+
+use crate::services::Services;
 
 /// The sky, as [`crate::services::weather`] reports it. Re-exported so the
 /// icon layer takes its vocabulary from `widgets` like every other glyph's.
 pub use crate::services::weather::Condition;
 
-/// Where a widget anchors itself on the bar.
+/// Which of `bar.ron`'s three lists a widget is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WidgetSlot {
     Left,
@@ -34,21 +39,35 @@ pub enum WidgetSlot {
 /// Widgets that toggle a state (battery saver, window layout, mute, …)
 /// drive a spring against a 0↔1 target and pass the spring's live position
 /// in here every frame; the result is a continuous, physical transition.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum Icon {
     #[default]
     None,
     Wifi(WifiState),
-    Bluetooth { on: f32 },
+    Bluetooth {
+        on: f32,
+    },
     /// 0 = letting the machine sleep, 1 = holding it awake.
-    Caffeine { on: f32 },
-    Volume { level: f32, muted: f32 },
-    Brightness { level: f32 },
+    Caffeine {
+        on: f32,
+    },
+    Volume {
+        level: f32,
+        muted: f32,
+    },
+    Brightness {
+        level: f32,
+    },
     Battery(BatteryState),
-    Layout { tiled: f32 },
+    Layout {
+        tiled: f32,
+    },
     /// `open` is how far the notification centre is out, `silenced` how far
     /// Do Not Disturb is on. Both are spring positions.
-    Notifications { open: f32, silenced: f32 },
+    Notifications {
+        open: f32,
+        silenced: f32,
+    },
     /// The sky, cross-fading. `blend` travels 0 → 1 as the weather changes
     /// from one condition to the next, and `night` 0 → 1 across dusk, so the
     /// pill never switches between two drawings.
@@ -80,8 +99,6 @@ pub enum Rune {
     Wifi,
     Bluetooth,
     Warning,
-    ChevronLeft,
-    ChevronRight,
     /// The three power profiles, in the order the panel lists them.
     Leaf,
     Gauge,
@@ -92,7 +109,7 @@ pub enum Rune {
 /// profile change or a plug-in event *morphs* the cell — its fill travels to
 /// the new colour and the accessory beside it grows out of the terminal —
 /// rather than switching between two drawings.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct BatteryState {
     /// How much of the cell is filled ∈ [0, 1].
     pub level: f32,
@@ -109,7 +126,7 @@ pub struct BatteryState {
 /// Wi-Fi visual state. `off` / `searching` are spring-smoothed crossfades
 /// between the icon's poses; `phase` is the position in the scanning sweep's
 /// cycle, advanced only while the sweep is running.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WifiState {
     /// Link quality ∈ [0, 1].
     pub strength: f32,
@@ -125,12 +142,12 @@ pub struct WifiState {
 ///
 /// New trait methods always carry a default impl so existing widgets keep
 /// compiling — adoption is opt-in per widget. The trait stays cheap to
-/// implement: an inert label-only widget overrides nothing but `id`, `slot`
-/// and `label`.
+/// implement: an inert label-only widget overrides nothing but `id` and
+/// `label`. Where it sits is the layout's business, not the widget's.
 pub trait BarWidget {
-    #[allow(dead_code)]
-    fn id(&self) -> &'static str;
-    fn slot(&self) -> WidgetSlot;
+    /// Stable name — its entry in `bar.ron` — which is also the pill's
+    /// accessible name.
+    fn id(&self) -> &str;
 
     /// Take whatever the services now hold. Called after a service publishes
     /// and once per tick. Return `true` if the pill's appearance changed.
@@ -159,6 +176,12 @@ pub trait BarWidget {
     /// Icon glyph to draw inside the pill.
     fn icon(&self) -> Icon {
         Icon::None
+    }
+
+    /// A plugin's surface, drawn from the trees crownplugind sent rather than
+    /// from a label and a glyph.
+    fn plugin_surface(&self) -> Option<&Surface> {
+        None
     }
 
     /// Panel to show when the pill is clicked.
@@ -196,6 +219,11 @@ pub trait BarWidget {
         false
     }
 
+    /// The panel was opened.
+    fn popup_opened(&mut self, services: &Services) {
+        let _ = services;
+    }
+
     /// The panel was dismissed. A widget that started a poll loop on open
     /// stops it here.
     fn popup_closed(&mut self, services: &Services) {
@@ -218,151 +246,114 @@ pub trait BarWidget {
     }
 }
 
-/// Per-widget runtime state owned by the registry — animation springs, last
-/// computed bounds for hit-testing. Kept separate from the widget impl so
-/// implementors don't have to thread animation state through their own types.
-pub struct WidgetRuntime {
-    pub widget: Box<dyn BarWidget>,
-    /// 0 = idle, 1 = fully hovered. Driven by a spring.
-    pub hover: Spring,
-    /// Last laid-out bounds (x, y, w, h) in surface px. Used for hit-testing.
-    pub bounds: Option<(f32, f32, f32, f32)>,
-}
-
-impl WidgetRuntime {
-    pub fn new(widget: Box<dyn BarWidget>) -> Self {
-        Self {
-            widget,
-            hover: Spring::new(0.0),
-            bounds: None,
-        }
-    }
-}
-
+/// Every widget on the bar, in registration order — which is left-to-right
+/// within each slot. Changes are reported as a bitmask over that order, so the
+/// UI repaints only the pills that moved.
+#[derive(Default)]
 pub struct WidgetRegistry {
-    pub widgets: Vec<WidgetRuntime>,
-    /// Index of the widget the pointer is currently over, if any.
-    pub hovered: Option<usize>,
+    widgets: Vec<Box<dyn BarWidget>>,
+    slots: Vec<WidgetSlot>,
 }
+
+/// One bit per widget index.
+pub type WidgetMask = u64;
+
+/// How many widgets one bar holds: one bit of a [`WidgetMask`] each.
+pub const MAX_WIDGETS: usize = WidgetMask::BITS as usize;
 
 impl WidgetRegistry {
     pub fn new() -> Self {
-        Self {
-            widgets: Vec::new(),
-            hovered: None,
+        Self::default()
+    }
+
+    /// Appends `widget` to `slot`. A bar already holding [`MAX_WIDGETS`] drops
+    /// it.
+    pub fn register(&mut self, widget: Box<dyn BarWidget>, slot: WidgetSlot) {
+        if self.widgets.len() == MAX_WIDGETS {
+            log::warn!(
+                "the bar holds {MAX_WIDGETS} widgets; `{}` left off",
+                widget.id()
+            );
+            return;
         }
+        self.widgets.push(widget);
+        self.slots.push(slot);
     }
 
-    /// Centre of a widget's pill on the bar, for anchoring its popup under it.
-    pub fn anchor_x(&self, idx: usize) -> Option<f32> {
-        let (x, _, w, _) = self.widgets.get(idx)?.bounds?;
-        Some(x + w * 0.5)
+    pub fn len(&self) -> usize {
+        self.widgets.len()
     }
 
-    pub fn register(&mut self, widget: Box<dyn BarWidget>) {
-        self.widgets.push(WidgetRuntime::new(widget));
+    pub fn widget(&self, idx: usize) -> Option<&dyn BarWidget> {
+        self.widgets.get(idx).map(AsRef::as_ref)
     }
 
-    /// Tick every widget; return whether any of their labels changed.
-    pub fn tick(&mut self) -> bool {
-        let mut dirty = false;
-        for rt in self.widgets.iter_mut() {
-            if rt.widget.update() {
-                dirty = true;
-            }
-        }
-        dirty
+    pub fn widget_mut(&mut self, idx: usize) -> Option<&mut (dyn BarWidget + 'static)> {
+        self.widgets.get_mut(idx).map(AsMut::as_mut)
     }
 
-    /// Hand every widget the newest snapshots. Returns whether any pill
-    /// changed appearance — a snapshot that only moves what a panel shows
-    /// costs no repaint of the bar.
-    pub fn sync(&mut self, services: &Services) -> bool {
-        let mut dirty = false;
-        for rt in self.widgets.iter_mut() {
-            let was_visible = rt.widget.visible();
-            dirty |= rt.widget.sync(services) | (rt.widget.visible() != was_visible);
-        }
-        dirty
+    /// Every widget with the slot it was placed in, in registration order.
+    pub fn placed(&self) -> impl Iterator<Item = (WidgetSlot, &dyn BarWidget)> {
+        self.slots
+            .iter()
+            .copied()
+            .zip(self.widgets.iter().map(AsRef::as_ref))
     }
 
-    /// Step every per-widget hover spring AND each widget's internal springs.
-    /// Returns whether any animation is still in flight (i.e. another frame
-    /// is needed).
-    pub fn step_animations(&mut self, dt: f32) -> bool {
-        let mut in_flight = false;
-        for rt in self.widgets.iter_mut() {
-            if !rt.hover.at_rest() {
-                rt.hover.step(dt);
-                if !rt.hover.at_rest() {
-                    in_flight = true;
-                }
-            }
-            if rt.widget.tick_animation(dt) {
-                in_flight = true;
-            }
-        }
-        in_flight
+    /// Tick every widget's clock; returns the ones whose pill changed.
+    pub fn tick(&mut self) -> WidgetMask {
+        mask(self.widgets.iter_mut().map(|widget| widget.update()))
     }
 
-    /// Hit-test against the most recently laid-out widget bounds.
-    pub fn hit_test(&self, x: f32, y: f32) -> Option<usize> {
-        self.widgets.iter().position(|rt| {
-            rt.bounds
-                .map(|(bx, by, bw, bh)| x >= bx && x <= bx + bw && y >= by && y <= by + bh)
-                .unwrap_or(false)
-        })
+    /// Hand every widget the newest snapshots. Returns the ones whose pill
+    /// changed appearance — a snapshot that only moves what a panel shows costs
+    /// no repaint of the bar.
+    pub fn sync(&mut self, services: &Services) -> WidgetMask {
+        mask(self.widgets.iter_mut().map(|widget| {
+            let was_visible = widget.visible();
+            widget.sync(services) | (widget.visible() != was_visible)
+        }))
     }
 
-    /// Update hover state — returns `true` if the hovered widget changed and
-    /// a repaint should be scheduled.
-    pub fn set_hovered(&mut self, idx: Option<usize>) -> bool {
-        if self.hovered == idx {
-            return false;
-        }
-        if let Some(prev) = self.hovered
-            && let Some(rt) = self.widgets.get_mut(prev)
-        {
-            rt.hover.set_target(0.0);
-        }
-        if let Some(new) = idx
-            && let Some(rt) = self.widgets.get_mut(new)
-        {
-            rt.hover.set_target(1.0);
-        }
-        self.hovered = idx;
-        true
-    }
-
-    pub fn clear_hover(&mut self) -> bool {
-        self.set_hovered(None)
+    /// Step the springs of the widgets in `active`; returns the ones still in
+    /// flight.
+    pub fn step_animations(&mut self, active: WidgetMask, dt: f32) -> WidgetMask {
+        mask(
+            self.widgets
+                .iter_mut()
+                .enumerate()
+                .map(|(index, widget)| active & bit(index) != 0 && widget.tick_animation(dt)),
+        )
     }
 
     /// Forward a click to the widget at `idx`. Returns `true` if the widget
-    /// reports state change (so the bar should request a frame).
+    /// reports a state change.
     pub fn click(&mut self, idx: usize, services: &Services) -> bool {
-        match self.widgets.get_mut(idx) {
-            Some(rt) => rt.widget.on_click(services),
-            None => false,
-        }
+        self.widgets
+            .get_mut(idx)
+            .is_some_and(|widget| widget.on_click(services))
     }
 
     /// Build the panel for the widget at `idx`, if it has one.
     pub fn popup(&mut self, idx: usize, services: &Services) -> Option<PopupSpec> {
-        self.widgets.get_mut(idx)?.widget.popup(services)
+        self.widgets.get_mut(idx)?.popup(services)
     }
 
     /// Whether clicking the widget at `idx` opens a panel rather than acting
     /// on the widget directly. Answered by building the panel and dropping it,
-    /// which happens once per click and keeps [`BarWidget::popup`] the single
-    /// source of truth.
+    /// which keeps [`BarWidget::popup`] the single source of truth.
     pub fn has_popup(&mut self, idx: usize, services: &Services) -> bool {
         self.popup(idx, services).is_some()
     }
 }
 
-impl Default for WidgetRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
+pub const fn bit(index: usize) -> WidgetMask {
+    1 << index
+}
+
+fn mask(changed: impl Iterator<Item = bool>) -> WidgetMask {
+    changed
+        .enumerate()
+        .filter(|(_, changed)| *changed)
+        .fold(0, |mask, (index, _)| mask | bit(index))
 }

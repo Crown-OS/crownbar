@@ -9,12 +9,12 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     animation::Spring,
     services::{
-        caffeine::{CaffeineCommand, CaffeineState, PRESETS},
         Services,
+        caffeine::{CaffeineCommand, CaffeineState, PRESETS},
     },
     widgets::{
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec,
         popup::{Item, PanelBuilder, Row},
-        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, WidgetSlot,
     },
 };
 
@@ -41,12 +41,8 @@ impl CaffeineWidget {
 }
 
 impl BarWidget for CaffeineWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "caffeine"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Right
     }
 
     /// A compositor with no idle-inhibit protocol gets no pill, rather than a
@@ -86,7 +82,9 @@ impl BarWidget for CaffeineWidget {
         };
         panel.action(
             Item::new("Indefinitely")
-                .icon(Icon::Caffeine { on: self.on.position })
+                .icon(Icon::Caffeine {
+                    on: self.on.position,
+                })
                 .detail(detail)
                 .selected(state.active && state.until.is_none())
                 .row(),
@@ -109,22 +107,20 @@ impl BarWidget for CaffeineWidget {
                 services.caffeine.send(CaffeineCommand::SetActive(on));
                 AfterAction::Stay
             }
-            PopupAction::Activate { row } => {
-                match self.targets.get(row).copied().flatten() {
-                    Some(Target::Indefinitely) => {
-                        services.caffeine.send(CaffeineCommand::Toggle);
-                        AfterAction::Stay
-                    }
-                    Some(Target::For(duration)) => {
-                        services
-                            .caffeine
-                            .send(CaffeineCommand::SetActiveFor(duration));
-                        AfterAction::Close
-                    }
-                    None => AfterAction::Stay,
+            PopupAction::Activate { row } => match self.targets.get(row).copied().flatten() {
+                Some(Target::Indefinitely) => {
+                    services.caffeine.send(CaffeineCommand::Toggle);
+                    AfterAction::Stay
                 }
-            }
-            PopupAction::Slide { .. } | PopupAction::Page { .. } => AfterAction::Stay,
+                Some(Target::For(duration)) => {
+                    services
+                        .caffeine
+                        .send(CaffeineCommand::SetActiveFor(duration));
+                    AfterAction::Close
+                }
+                None => AfterAction::Stay,
+            },
+            PopupAction::Slide { .. } => AfterAction::Stay,
         }
     }
 

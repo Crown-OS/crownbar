@@ -21,11 +21,12 @@
 //!   than deflates.
 //!
 //! Switching panels never replays any of that. The shape itself travels to the
-//! new one's bounds while the two sets of rows cross-fade inside it, so a click
+//! new one's bounds while the two sets of rows cross-fade inside it (on the
+//! render thread, as the old rows leave and the new ones arrive), so a click
 //! on the next pill reads as the same object changing rather than one object
 //! being destroyed and another built.
 
-use vello::kurbo::{Affine, Point, Rect};
+use kurbo::{Affine, Point, Rect};
 
 use crate::animation::{Spring, SpringProfile};
 
@@ -48,22 +49,35 @@ const ALPHA_LEAD: f32 = 2.2;
 /// Below this the panel is gone: nothing drawn, no input region, no material.
 const HIDDEN: f32 = 0.001;
 
+/// Which way a panel opens out of the bar: down from a bar along the top of
+/// the screen, up from one along the bottom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opening {
+    Down,
+    Up,
+}
+
 /// What a frame of the animation works out to.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Frame {
     /// The morphing shape, in surface px, before the spring-out transform.
     pub bounds: Rect,
     /// Spring-out, drop and squash, about the pill the panel hangs from.
     pub transform: Affine,
     pub alpha: f32,
-    /// How much of the incoming panel's rows show; the outgoing ones take the
-    /// rest. 1.0 whenever nothing is being replaced.
-    pub crossfade: f32,
 }
 
 impl Frame {
     /// The shape as it lands on screen, transform included.
     pub fn visible(&self) -> Rect {
         self.transform.transform_rect_bbox(self.bounds)
+    }
+
+    /// How much the rows are stretched along each axis on their way to
+    /// [`visible`](Self::visible), from its top-left corner.
+    pub fn scale(&self) -> (f64, f64) {
+        let [scale_x, _, _, scale_y, _, _] = self.transform.as_coeffs();
+        (scale_x, scale_y)
     }
 }
 
@@ -77,7 +91,6 @@ pub struct PanelMotion {
     /// Whether the next [`reshape`](Self::reshape) lands outright. A shape
     /// with nothing on screen has nothing to travel from.
     unplaced: bool,
-    fade: Spring,
 }
 
 impl PanelMotion {
@@ -86,23 +99,19 @@ impl PanelMotion {
             open: Spring::with_profile(0.0, SpringProfile::BOUNCE),
             edges: [Spring::with_profile(0.0, SpringProfile::GLIDE); 4],
             unplaced: true,
-            fade: Spring::new(1.0),
         }
     }
 
     /// Throw the panel out of its pill. `replacing` is whether another panel
-    /// is already on screen — then the shape morphs and the rows cross-fade
-    /// instead of the whole thing being launched again.
+    /// is already on screen — then the shape morphs instead of the whole thing
+    /// being launched again.
     pub fn open(&mut self, replacing: bool) {
         self.unplaced = !replacing;
         if replacing {
-            self.fade.reset(0.0);
-            self.fade.set_target(1.0);
             return;
         }
         self.open.set_profile(SpringProfile::BOUNCE);
         self.open.set_target(1.0);
-        self.fade.reset(1.0);
     }
 
     pub fn close(&mut self) {
@@ -125,7 +134,7 @@ impl PanelMotion {
 
     pub fn step(&mut self, dt: f32) -> bool {
         let mut busy = false;
-        for spring in [&mut self.open, &mut self.fade].into_iter().chain(&mut self.edges) {
+        for spring in std::iter::once(&mut self.open).chain(&mut self.edges) {
             if !spring.at_rest() {
                 spring.step(dt);
                 busy = true;
@@ -139,13 +148,13 @@ impl PanelMotion {
         self.open.position <= HIDDEN && self.open.at_rest()
     }
 
-    /// Whether the panel has stopped moving, and so is worth hit-testing.
-    pub fn at_rest(&self) -> bool {
+    #[cfg(test)]
+    fn at_rest(&self) -> bool {
         self.open.at_rest() && self.edges.iter().all(Spring::at_rest)
     }
 
     /// Resolve the frame, hanging from the pill centred on `anchor_x`.
-    pub fn frame(&self, anchor_x: f64) -> Frame {
+    pub fn frame(&self, anchor_x: f64, opening: Opening) -> Frame {
         let [x0, y0, x1, y1] = self.edges.map(|edge| edge.position as f64);
         let bounds = Rect::new(x0, y0, x1, y1);
 
@@ -154,13 +163,16 @@ impl PanelMotion {
         // Positive while it is coming out, negative while it is settling back
         // against its own overshoot — so the panel stretches into the motion
         // and squashes as the motion stops.
-        let stretch =
-            ((self.open.velocity * STRETCH) as f64).clamp(-MAX_STRETCH, MAX_STRETCH);
-        let pivot = Point::new(anchor_x.clamp(bounds.x0, bounds.x1), bounds.y0);
+        let stretch = ((self.open.velocity * STRETCH) as f64).clamp(-MAX_STRETCH, MAX_STRETCH);
+        let (edge, drop) = match opening {
+            Opening::Down => (bounds.y0, -DROP),
+            Opening::Up => (bounds.y1, DROP),
+        };
+        let pivot = Point::new(anchor_x.clamp(bounds.x0, bounds.x1), edge);
 
         Frame {
             bounds,
-            transform: Affine::translate((0.0, -DROP * (1.0 - progress)))
+            transform: Affine::translate((0.0, drop * (1.0 - progress)))
                 * about(
                     pivot,
                     Affine::scale_non_uniform(
@@ -169,7 +181,6 @@ impl PanelMotion {
                     ),
                 ),
             alpha: (self.open.position * ALPHA_LEAD).clamp(0.0, 1.0),
-            crossfade: self.fade.position.clamp(0.0, 1.0),
         }
     }
 }
@@ -192,7 +203,7 @@ mod tests {
     fn settle(motion: &mut PanelMotion) -> f64 {
         let mut peak: f64 = 0.0;
         for _ in 0..600 {
-            peak = peak.max(motion.frame(0.0).bounds.height());
+            peak = peak.max(motion.frame(0.0, Opening::Down).bounds.height());
             if !motion.step(FRAME) {
                 break;
             }
@@ -215,7 +226,7 @@ mod tests {
         motion.reshape(FIRST);
         // Nothing to travel from: the shape is there before the first frame,
         // and only the spring-out transform moves.
-        assert_eq!(motion.frame(0.0).bounds, FIRST);
+        assert_eq!(motion.frame(0.0, Opening::Down).bounds, FIRST);
     }
 
     #[test]
@@ -224,20 +235,23 @@ mod tests {
         motion.open(false);
         motion.reshape(FIRST);
 
-        let birth = motion.frame(0.0);
-        assert!(birth.visible().height() < FIRST.height(), "started full size");
+        let birth = motion.frame(0.0, Opening::Down);
+        assert!(
+            birth.visible().height() < FIRST.height(),
+            "started full size"
+        );
         assert!(birth.alpha < 1.0, "started solid");
 
         let mut peak: f64 = 0.0;
         for _ in 0..600 {
-            peak = peak.max(motion.frame(0.0).visible().height());
+            peak = peak.max(motion.frame(0.0, Opening::Down).visible().height());
             if !motion.step(FRAME) {
                 break;
             }
         }
         assert!(peak > FIRST.height(), "never overshot: peaked at {peak}");
         assert!(motion.at_rest());
-        assert!((motion.frame(0.0).visible().height() - FIRST.height()).abs() < 1.0);
+        assert!((motion.frame(0.0, Opening::Down).visible().height() - FIRST.height()).abs() < 1.0);
     }
 
     #[test]
@@ -246,7 +260,7 @@ mod tests {
         motion.open(true);
         motion.reshape(SECOND);
 
-        let midway = motion.frame(0.0);
+        let midway = motion.frame(0.0, Opening::Down);
         assert!(
             midway.bounds.x0 > FIRST.x0 - 1.0 && midway.bounds.x0 < SECOND.x0,
             "jumped to {:?}",
@@ -255,11 +269,10 @@ mod tests {
         // Full size and solid throughout: this is one shape changing, not a
         // second one being opened.
         assert_eq!(midway.alpha, 1.0);
-        assert!(midway.crossfade < 1.0, "rows did not cross-fade");
 
         settle(&mut motion);
         assert!(!motion.invisible());
-        assert!((motion.frame(0.0).bounds.height() - SECOND.height()).abs() < 1.0);
+        assert!((motion.frame(0.0, Opening::Down).bounds.height() - SECOND.height()).abs() < 1.0);
     }
 
     #[test]
@@ -269,7 +282,7 @@ mod tests {
         motion.step(FRAME);
         // A spring released from rest covers a couple of percent of its travel
         // in the first frame, which reads as a hesitation before a dismissal.
-        let shrink = 1.0 - motion.frame(0.0).visible().height() / FIRST.height();
+        let shrink = 1.0 - motion.frame(0.0, Opening::Down).visible().height() / FIRST.height();
         assert!(shrink > 0.02, "crept off by {shrink} on the first frame");
 
         let peak = settle(&mut motion);
@@ -278,9 +291,19 @@ mod tests {
     }
 
     #[test]
+    fn a_panel_opening_up_rises_out_of_a_bottom_bar() {
+        let mut motion = PanelMotion::new();
+        motion.open(false);
+        motion.reshape(FIRST);
+        let birth = motion.frame(0.0, Opening::Up).visible();
+        assert!(birth.y1 > FIRST.y1, "started above the bar: {birth:?}");
+        assert!(birth.y0 > FIRST.y0, "grew downward: {birth:?}");
+    }
+
+    #[test]
     fn a_panel_at_rest_is_not_deformed() {
         let motion = shown();
-        let settled = motion.frame(200.0).visible();
+        let settled = motion.frame(200.0, Opening::Down).visible();
         // Springs settle within their epsilon rather than exactly on it, so
         // what matters is that nothing is left a pixel out of place.
         assert!(

@@ -2,33 +2,30 @@
 //!
 //! The pill is the date and time. The panel is the same reading written large,
 //! over a month grid that can be paged — which is the one thing the pill
-//! cannot say and the reason to click it.
+//! cannot say and the reason to click it. The grid pages itself, and starts
+//! over on today's month each time the panel opens.
 
-use chrono::{DateTime, Datelike, Local, NaiveDate};
+use chrono::{Datelike, Local};
+use crownui::kit::CalendarDate;
 
 use crate::{
     services::{
-        link::{self, SettingsPane},
         Services,
+        link::{self, SettingsPane},
     },
-    util::calendar,
     widgets::{
-        popup::{Day, Month, PanelBuilder, Row},
-        AfterAction, BarWidget, PopupAction, PopupSpec, WidgetSlot,
+        AfterAction, BarWidget, PopupAction, PopupSpec,
+        popup::{PanelBuilder, Row},
     },
 };
 
 pub struct ClockWidget {
     label: String,
-    /// Months away from today the panel is showing. Reset when it closes: a
-    /// panel reopened a week later should not still be in March.
-    page: i32,
     targets: Vec<Option<Target>>,
 }
 
 #[derive(Clone, Copy)]
 enum Target {
-    Calendar,
     Settings,
 }
 
@@ -36,7 +33,6 @@ impl ClockWidget {
     pub fn new() -> Self {
         let mut widget = Self {
             label: String::new(),
-            page: 0,
             targets: Vec::new(),
         };
         widget.refresh();
@@ -58,12 +54,8 @@ impl Default for ClockWidget {
 }
 
 impl BarWidget for ClockWidget {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "clock"
-    }
-
-    fn slot(&self) -> WidgetSlot {
-        WidgetSlot::Left
     }
 
     fn update(&mut self) -> bool {
@@ -82,10 +74,12 @@ impl BarWidget for ClockWidget {
             secondary: now.format("%A, %e %B %Y").to_string(),
         });
         panel.row(Row::Separator);
-        panel.action(
-            Row::Calendar(Box::new(month_of(now, self.page))),
-            Target::Calendar,
-        );
+        let today = now.date_naive();
+        panel.row(Row::Calendar(CalendarDate::new(
+            today.year(),
+            today.month() as u8,
+            today.day() as u8,
+        )));
         panel.row(Row::Separator);
         panel.action(
             Row::Action {
@@ -100,52 +94,21 @@ impl BarWidget for ClockWidget {
     }
 
     fn on_popup(&mut self, action: PopupAction, _services: &Services) -> AfterAction {
-        match action {
-            PopupAction::Page { row, months } => {
-                if let Some(Target::Calendar) = self.targets.get(row).copied().flatten() {
-                    self.page += months;
-                }
-                AfterAction::Stay
+        let PopupAction::Activate { row } = action else {
+            return AfterAction::Stay;
+        };
+        if let Some(Target::Settings) = self.targets.get(row).copied().flatten() {
+            if !link::open(SettingsPane::DateTime) {
+                log::info!("no date and time settings application installed");
             }
-            PopupAction::Activate { row } => {
-                if let Some(Target::Settings) = self.targets.get(row).copied().flatten() {
-                    if !link::open(SettingsPane::DateTime) {
-                        log::info!("no date and time settings application installed");
-                    }
-                    return AfterAction::Close;
-                }
-                AfterAction::Stay
-            }
-            PopupAction::Toggle { .. } | PopupAction::Slide { .. } => AfterAction::Stay,
+            return AfterAction::Close;
         }
+        AfterAction::Stay
     }
 
     /// The panel restates itself every second so the readout is the time and
     /// not the time it opened at.
     fn popup_poll(&mut self, slow: bool) -> bool {
         slow
-    }
-
-    fn popup_closed(&mut self, _services: &Services) {
-        self.page = 0;
-    }
-}
-
-/// The month `page` months from `now`, with today marked wherever it falls.
-fn month_of(now: DateTime<Local>, page: i32) -> Month {
-    let today = now.date_naive();
-    let anchor = calendar::shift_months(today.with_day(1).unwrap_or(today), page);
-    Month {
-        title: anchor.format("%B %Y").to_string(),
-        days: calendar::grid(anchor).map(|date| cell(date, anchor, today)).collect(),
-    }
-}
-
-fn cell(date: NaiveDate, anchor: NaiveDate, today: NaiveDate) -> Day {
-    Day {
-        day: date.day() as u8,
-        in_month: date.month() == anchor.month() && date.year() == anchor.year(),
-        today: date == today,
-        weekend: calendar::is_weekend(date),
     }
 }
