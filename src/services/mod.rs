@@ -28,6 +28,7 @@ pub mod link;
 
 mod bus;
 mod hub;
+mod reconnect;
 pub mod rfkill;
 mod runtime;
 mod status;

@@ -15,6 +15,7 @@ use tokio::time;
 use crate::services::{
     bluetooth::{BluetoothCommand, BluetoothState, BtDevice, RadioState},
     bus::{Commands, Publisher},
+    reconnect::Backoff,
     rfkill,
     status::{Availability, ErrorKind, Failure, Interest},
 };
@@ -24,14 +25,13 @@ use crate::services::{
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 /// A scan left running past this is a battery drain nobody asked for.
 const DISCOVERY_LIMIT: Duration = Duration::from_secs(30);
-/// BlueZ mid-restart hands back a stream that ends at once; without a pause
-/// that is a hot loop with D-Bus in it.
-const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 
 type Events = SelectAll<futures_util::stream::BoxStream<'static, (Address, DeviceEvent)>>;
 
 pub async fn run(publish: Publisher<BluetoothState>, mut commands: Commands<BluetoothCommand>) {
+    let mut backoff = Backoff::default();
     loop {
+        let started = time::Instant::now();
         match connect(&publish, &mut commands).await {
             // The command pipe closed: the bar is going away.
             Ok(()) => return,
@@ -43,7 +43,8 @@ pub async fn run(publish: Publisher<BluetoothState>, mut commands: Commands<Blue
                     true
                 });
                 log::info!("bluetooth: {reason}; retrying");
-                time::sleep(RECONNECT_DELAY).await;
+                backoff.reset_if_held(started);
+                backoff.wait().await;
             }
         }
     }

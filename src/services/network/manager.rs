@@ -15,6 +15,7 @@ use tokio::time;
 use crate::services::{
     bus::{Commands, Publisher},
     network::{Joined, MAX_OTHER, NetworkCommand, NetworkState, Radio, WifiNetwork, link},
+    reconnect::Backoff,
     status::{Availability, ErrorKind, Failure, Interest},
 };
 
@@ -22,8 +23,6 @@ use crate::services::{
 /// rather than starving it forever. A scan makes NetworkManager talk for
 /// seconds, and one snapshot a second is more than the panel can show.
 const DEBOUNCE: Duration = Duration::from_secs(1);
-/// A daemon mid-restart hands back a stream that ends at once.
-const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 /// Floor between scans, and the cadence while the panel stays up. A scan
 /// takes the radio off its channel, so this is deliberately slow: the list a
 /// panel opens on is the one the last sweep left.
@@ -32,7 +31,9 @@ const SCAN_PERIOD: Duration = Duration::from_secs(30);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub async fn run(publish: Publisher<NetworkState>, mut commands: Commands<NetworkCommand>) {
+    let mut backoff = Backoff::default();
     loop {
+        let started = time::Instant::now();
         match connect(&publish, &mut commands).await {
             Ok(()) => return,
             Err(reason) => {
@@ -45,7 +46,8 @@ pub async fn run(publish: Publisher<NetworkState>, mut commands: Commands<Networ
                     true
                 });
                 log::info!("network: {reason}; retrying");
-                time::sleep(RECONNECT_DELAY).await;
+                backoff.reset_if_held(started);
+                backoff.wait().await;
             }
         }
     }

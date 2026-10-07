@@ -10,21 +10,17 @@
 //! Commands issued while it is down are dropped rather than queued: a toggle
 //! the user asked for a minute ago is not one they still want.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crownos_ipc::adapter::tokio::AsyncClient;
 use crownotify::proto::{CenterVisibility, DoNotDisturbChanged, protocol};
-use tokio::time;
+use tokio::time::Instant;
 
 use crate::services::{
     bus::{Backend, Commands, Publisher},
+    reconnect::Backoff,
     status::Availability,
 };
-
-/// How long to wait before retrying a connection that failed. Long enough that
-/// an absent crownotify costs a syscall a second, short enough that a restart
-/// is picked up before the pill looks wrong.
-const RECONNECT: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NotificationsState {
@@ -49,14 +45,17 @@ pub async fn run(backend: Backend<NotificationsState, NotificationsCommand>) {
         mut commands,
     } = backend;
 
+    let mut backoff = Backoff::default();
     loop {
+        let started = Instant::now();
         if let Some(client) = connect().await
             && !session(&publish, &mut commands, client).await
         {
             return;
         }
+        backoff.reset_if_held(started);
         offline(&publish);
-        if !backoff(&mut commands).await {
+        if !backoff.wait_discarding(&mut commands).await {
             return;
         }
     }
@@ -99,21 +98,6 @@ async fn session(
                 }
                 drain(publish, &mut client);
             }
-        }
-    }
-}
-
-/// Sleep out the retry interval, discarding whatever is asked for meanwhile.
-/// Returns whether the bar is still there.
-async fn backoff(commands: &mut Commands<NotificationsCommand>) -> bool {
-    let deadline = time::sleep(RECONNECT);
-    tokio::pin!(deadline);
-    loop {
-        tokio::select! {
-            _ = &mut deadline => return true,
-            command = commands.recv() => if command.is_none() {
-                return false;
-            },
         }
     }
 }

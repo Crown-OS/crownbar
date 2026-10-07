@@ -10,19 +10,16 @@
 //! knows nothing of the last session. Events for a daemon that is not there
 //! are dropped: a click on a pill that no longer exists asks for nothing.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crownos_ipc::adapter::tokio::AsyncClient;
 use crownplugin_proto::{Host, RemoteSurface, Snapshot, SurfaceKey, UiEvent, plugind};
-use tokio::time;
+use tokio::time::Instant;
 
-use crate::services::bus::{Backend, Commands, Publisher};
-
-/// First pause before retrying a connection that failed.
-const RECONNECT_MIN: Duration = Duration::from_secs(1);
-/// Longest pause: an absent daemon costs a syscall this often, and one that
-/// comes up is on the bar within this long.
-const RECONNECT_MAX: Duration = Duration::from_secs(30);
+use crate::services::{
+    bus::{Backend, Commands, Publisher},
+    reconnect::Backoff,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct PluginsState {
@@ -61,19 +58,19 @@ pub async fn run(backend: Backend<PluginsState, PluginsCommand>) {
         mut commands,
     } = backend;
 
-    let mut pause = RECONNECT_MIN;
+    let mut backoff = Backoff::default();
     loop {
-        if let Some((client, snapshot)) = connect().await {
-            pause = RECONNECT_MIN;
-            if !session(&publish, &mut commands, client, snapshot).await {
-                return;
-            }
-        }
-        offline(&publish);
-        if !backoff(&mut commands, pause).await {
+        let started = Instant::now();
+        if let Some((client, snapshot)) = connect().await
+            && !session(&publish, &mut commands, client, snapshot).await
+        {
             return;
         }
-        pause = (pause * 2).min(RECONNECT_MAX);
+        backoff.reset_if_held(started);
+        offline(&publish);
+        if !backoff.wait_discarding(&mut commands).await {
+            return;
+        }
     }
 }
 
@@ -164,21 +161,6 @@ async fn send(client: &mut AsyncClient, command: PluginsCommand) -> Result<(), c
             client
                 .notify::<plugind::popup>(&plugind::popup { surface, open }, Vec::new())
                 .await
-        }
-    }
-}
-
-/// Sleep out `pause`, discarding whatever is asked for meanwhile. Returns
-/// whether the bar is still there.
-async fn backoff(commands: &mut Commands<PluginsCommand>, pause: Duration) -> bool {
-    let deadline = time::sleep(pause);
-    tokio::pin!(deadline);
-    loop {
-        tokio::select! {
-            _ = &mut deadline => return true,
-            command = commands.recv() => if command.is_none() {
-                return false;
-            },
         }
     }
 }
