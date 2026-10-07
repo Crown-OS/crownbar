@@ -98,9 +98,7 @@ impl BarWidget for ClockWidget {
             return AfterAction::Stay;
         };
         if let Some(Target::Settings) = self.targets.get(row).copied().flatten() {
-            if !link::open(SettingsPane::DateTime) {
-                log::info!("no date and time settings application installed");
-            }
+            link::open(SettingsPane::DateTime);
             return AfterAction::Close;
         }
         AfterAction::Stay

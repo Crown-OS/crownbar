@@ -6,6 +6,8 @@
 //! second one; the direct invocation and the third-party fallbacks are what
 //! answer until it ships.
 
+use std::process::Child;
+
 use crate::util::cmd;
 
 /// Where in the settings app to land.
@@ -56,14 +58,28 @@ impl SettingsPane {
 const LINKER: &str = "hyprlink";
 const SETTINGS: &str = "crownos-settings";
 
-/// Open `pane`, returning whether anything started.
-pub fn open(pane: SettingsPane) -> bool {
+/// Open `pane` from a thread of its own, which looks the application up,
+/// starts it and reaps it once it exits: the `PATH` walk and the fork stay off
+/// the frame, and no settings window is left behind as a zombie.
+pub fn open(pane: SettingsPane) {
+    let launcher = std::thread::Builder::new()
+        .name("crownbar-launch".into())
+        .spawn(move || match launch(pane) {
+            Some(mut child) => {
+                let _ = child.wait();
+            }
+            None => log::info!("no {pane:?} settings application installed"),
+        });
+    if let Err(error) = launcher {
+        log::warn!("could not start the launcher thread: {error}");
+    }
+}
+
+fn launch(pane: SettingsPane) -> Option<Child> {
     let uri = format!("crown://settings/{}", pane.slug());
-    if cmd::exists(LINKER) && cmd::spawn_detached(LINKER, &[&uri]) {
-        return true;
-    }
-    if cmd::spawn_detached(SETTINGS, &[pane.slug()]) {
-        return true;
-    }
-    cmd::launch_first(pane.fallbacks())
+    cmd::exists(LINKER)
+        .then(|| cmd::spawn(LINKER, &[&uri]))
+        .flatten()
+        .or_else(|| cmd::spawn(SETTINGS, &[pane.slug()]))
+        .or_else(|| cmd::launch_first(pane.fallbacks()))
 }

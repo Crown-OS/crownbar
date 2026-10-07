@@ -177,9 +177,7 @@ impl BarWidget for BluetoothWidget {
                         AfterAction::Stay
                     }
                     Some(Target::Settings) => {
-                        if !link::open(SettingsPane::Bluetooth) {
-                            log::info!("no bluetooth settings application installed");
-                        }
+                        link::open(SettingsPane::Bluetooth);
                         AfterAction::Close
                     }
                     None => AfterAction::Stay,

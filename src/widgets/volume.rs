@@ -225,9 +225,7 @@ impl BarWidget for VolumeWidget {
                 AfterAction::Close
             }
             (Target::Settings, PopupAction::Activate { .. }) => {
-                if !link::open(SettingsPane::Sound) {
-                    log::info!("no sound settings application installed");
-                }
+                link::open(SettingsPane::Sound);
                 AfterAction::Close
             }
             _ => AfterAction::Stay,

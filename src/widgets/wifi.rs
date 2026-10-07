@@ -216,9 +216,7 @@ impl BarWidget for WifiWidget {
                 // A new secured network needs a password, and the popup has no
                 // keyboard — so settings takes it from here.
                 Some(Target::Handoff) | Some(Target::Settings) => {
-                    if !link::open(SettingsPane::Network) {
-                        log::info!("no network settings application installed");
-                    }
+                    link::open(SettingsPane::Network);
                     AfterAction::Close
                 }
                 None => AfterAction::Stay,

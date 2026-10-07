@@ -194,9 +194,7 @@ impl BarWidget for BatteryWidget {
                 AfterAction::Stay
             }
             Some(Target::Settings) => {
-                if !link::open(SettingsPane::Battery) {
-                    log::info!("no power settings application installed");
-                }
+                link::open(SettingsPane::Battery);
                 AfterAction::Close
             }
             None => AfterAction::Stay,

@@ -176,9 +176,7 @@ impl BarWidget for BrightnessWidget {
             }
             PopupAction::Activate { row } => {
                 if let Some(Target::Settings) = self.targets.get(row).cloned().flatten() {
-                    if !link::open(SettingsPane::Display) {
-                        log::info!("no display settings application installed");
-                    }
+                    link::open(SettingsPane::Display);
                     return AfterAction::Close;
                 }
                 AfterAction::Stay

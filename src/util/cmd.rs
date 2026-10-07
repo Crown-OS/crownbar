@@ -7,19 +7,19 @@
 
 use std::{
     path::Path,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
 };
 
-/// Start `program args…` and forget about it — for the "… Settings" rows,
-/// which hand off to a separate application.
-pub fn spawn_detached(program: &str, args: &[&str]) -> bool {
+/// Start `program args…` with no stdio of the bar's — for the "… Settings"
+/// rows, which hand off to a separate application. The caller reaps it.
+pub fn spawn(program: &str, args: &[&str]) -> Option<Child> {
     Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .is_ok()
+        .ok()
 }
 
 /// Is `program` on `PATH`? Cheaper and quieter than running it with
@@ -42,12 +42,10 @@ fn is_executable(path: &Path) -> bool {
 }
 
 /// Launch the first of `candidates` (each a `(program, args)` pair) that is
-/// installed. Returns whether anything was started.
-pub fn launch_first(candidates: &[(&str, &[&str])]) -> bool {
-    for (program, args) in candidates {
-        if exists(program) && spawn_detached(program, args) {
-            return true;
-        }
-    }
-    false
+/// installed.
+pub fn launch_first(candidates: &[(&str, &[&str])]) -> Option<Child> {
+    candidates
+        .iter()
+        .filter(|(program, _)| exists(program))
+        .find_map(|(program, args)| spawn(program, args))
 }
