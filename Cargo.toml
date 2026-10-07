@@ -75,3 +75,9 @@ crownos-ipc = { path = "../crownos-ipc" }
 
 [patch."https://github.com/crown-os/crownotify"]
 crownotify = { path = "../crownotify" }
+
+# `cargo flamegraph --profile profiling`: release codegen with symbols kept.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"
