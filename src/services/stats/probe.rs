@@ -2,14 +2,23 @@
 //!
 //! Nothing here blocks on anything but the page cache, but it is still a
 //! dozen file opens per tick, so it runs on the blocking pool like every
-//! other reading the bar takes.
+//! other reading the bar takes. Paths are resolved once and every reading
+//! lands in a stack buffer, so a tick allocates nothing.
 
 use std::path::{Path, PathBuf};
 
-use crate::services::stats::hwmon::{Sensors, read_number, read_string};
+use crate::{
+    services::stats::hwmon::{Sensors, read_string},
+    util::sysfs::{read_head, read_number},
+};
 
 const CPUFREQ: &str = "/sys/devices/system/cpu";
 const DRM: &str = "/sys/class/drm";
+/// Holds the aggregate line `/proc/stat` opens with, whatever the counters.
+const STAT_HEAD: usize = 512;
+/// Holds `MemTotal`, `MemFree` and `MemAvailable`, the lines `/proc/meminfo`
+/// opens with.
+const MEMINFO_HEAD: usize = 256;
 
 /// A reading of `/proc/stat`'s aggregate line, for differencing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -20,15 +29,22 @@ pub struct CpuTicks {
 
 impl CpuTicks {
     pub fn read() -> Option<Self> {
-        let stat = std::fs::read_to_string("/proc/stat").ok()?;
+        let mut buffer = [0; STAT_HEAD];
+        let stat = read_head(Path::new("/proc/stat"), &mut buffer)?;
         let line = stat.lines().next()?.strip_prefix("cpu ")?;
-        let fields: Vec<u64> = line
-            .split_whitespace()
-            .filter_map(|field| field.parse().ok())
-            .collect();
         // user nice system idle iowait irq softirq steal …
-        let total: u64 = fields.iter().sum();
-        let idle: u64 = fields.iter().skip(3).take(2).sum();
+        let (total, idle) = line
+            .split_whitespace()
+            .filter_map(|field| field.parse::<u64>().ok())
+            .enumerate()
+            .fold((0, 0), |(total, idle), (column, ticks)| {
+                let idle = if matches!(column, 3 | 4) {
+                    idle + ticks
+                } else {
+                    idle
+                };
+                (total + ticks, idle)
+            });
         Some(Self {
             busy: total.saturating_sub(idle),
             total,
@@ -49,32 +65,42 @@ impl CpuTicks {
     }
 }
 
+/// Every core's current-clock file. A core taken offline later simply stops
+/// answering and drops out of the mean.
+pub fn cpu_clock_files() -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(CPUFREQ) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path().join("cpufreq/scaling_cur_freq"))
+        .filter(|path| path.is_file())
+        .collect()
+}
+
 /// Mean current clock across the cores that are online, in MHz.
 ///
 /// The mean rather than core 0: on a machine that parks cores, core 0 is
 /// whichever one the scheduler happened to leave busy and reads far higher
 /// than the package is actually running at.
-pub fn cpu_clock_mhz() -> Option<f32> {
-    let cpus = std::fs::read_dir(CPUFREQ).ok()?;
-    let mut total = 0u64;
-    let mut count = 0u32;
-    for entry in cpus.flatten() {
-        let path = entry.path().join("cpufreq/scaling_cur_freq");
-        if let Some(khz) = read_number(&path) {
-            total += khz;
-            count += 1;
-        }
-    }
+pub fn cpu_clock_mhz(files: &[PathBuf]) -> Option<f32> {
+    let (total, count) = files
+        .iter()
+        .filter_map(|path| read_number(path))
+        .fold((0u64, 0u32), |(total, count), khz| (total + khz, count + 1));
     (count > 0).then(|| total as f32 / count as f32 / 1000.0)
 }
 
 /// Total and available memory, in bytes.
 pub fn memory() -> Option<(u64, u64)> {
-    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let mut buffer = [0; MEMINFO_HEAD];
+    let meminfo = read_head(Path::new("/proc/meminfo"), &mut buffer)?;
     let mut total = None;
     let mut available = None;
     for line in meminfo.lines() {
-        let (key, value) = line.split_once(':')?;
+        let Some((key, value)) = line.split_once(':') else {
+            break;
+        };
         let kib: Option<u64> = value.split_whitespace().next().and_then(|n| n.parse().ok());
         match key {
             "MemTotal" => total = kib,

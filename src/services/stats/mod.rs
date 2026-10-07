@@ -11,7 +11,7 @@
 mod hwmon;
 mod probe;
 
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use tokio::{task, time};
 
@@ -74,6 +74,7 @@ pub async fn run(backend: Backend<StatsState, StatsCommand>) {
     let Ok(hardware) = task::spawn_blocking(Hardware::discover).await else {
         return;
     };
+    let hardware = Arc::new(hardware);
     if hardware.is_barren() {
         publish.edit(|state| {
             state.availability =
@@ -88,7 +89,7 @@ pub async fn run(backend: Backend<StatsState, StatsCommand>) {
 
     loop {
         let sample = match task::spawn_blocking({
-            let hardware = hardware.clone();
+            let hardware = Arc::clone(&hardware);
             move || hardware.sample()
         })
         .await
@@ -113,11 +114,12 @@ pub async fn run(backend: Backend<StatsState, StatsCommand>) {
 }
 
 /// Where this machine's readings live. Resolved once.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 struct Hardware {
     sensors: hwmon::Sensors,
     node: probe::GpuNode,
-    model: Option<String>,
+    cpu_clocks: Vec<PathBuf>,
+    model: Option<Arc<str>>,
 }
 
 /// One pass over all of them.
@@ -138,7 +140,8 @@ impl Hardware {
         Self {
             sensors: hwmon::discover(),
             node: probe::GpuNode::discover(),
-            model: probe::cpu_model(),
+            cpu_clocks: probe::cpu_clock_files(),
+            model: probe::cpu_model().map(Arc::from),
         }
     }
 
@@ -152,7 +155,7 @@ impl Hardware {
     fn sample(&self) -> Sample {
         Sample {
             cpu_celsius: self.sensors.cpu.as_ref().and_then(hwmon::Sensor::celsius),
-            cpu_mhz: probe::cpu_clock_mhz(),
+            cpu_mhz: probe::cpu_clock_mhz(&self.cpu_clocks),
             ticks: probe::CpuTicks::read(),
             gpu_celsius: self.sensors.gpu.as_ref().and_then(hwmon::Sensor::celsius),
             gpu_mhz: probe::gpu_clock_mhz(&self.sensors),
@@ -179,12 +182,10 @@ fn apply(
     if let Some(ticks) = sample.ticks {
         *previous = Some(ticks);
     }
-    let model: Option<Arc<str>> = hardware.model.as_deref().map(Arc::from);
-
     publish.edit(|state| {
         let next = StatsState {
             availability: Availability::Ready,
-            model,
+            model: hardware.model.clone(),
             cpu: Unit {
                 celsius: sample.cpu_celsius,
                 mhz: sample.cpu_mhz,

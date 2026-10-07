@@ -11,6 +11,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::util::sysfs::read_number;
+
 /// Drivers that report a package temperature for the processor, by the `name`
 /// they publish. AMD first because this is what CrownOS runs on most.
 const CPU_CHIPS: [&str; 5] = ["k10temp", "zenpower", "coretemp", "cpu_thermal", "acpitz"];
@@ -122,8 +124,4 @@ fn exists(path: PathBuf) -> Option<PathBuf> {
 
 pub fn read_string(path: &Path) -> Option<String> {
     Some(std::fs::read_to_string(path).ok()?.trim().to_string())
-}
-
-pub fn read_number(path: &Path) -> Option<u64> {
-    read_string(path)?.parse().ok()
 }
