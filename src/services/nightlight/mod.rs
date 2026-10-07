@@ -13,11 +13,21 @@
 mod connection;
 mod ramp;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use crate::services::{bus::Backend, status::Availability};
+use tokio::time::{self, Instant};
+
+use crate::services::{
+    bus::{Backend, Commands, Publisher},
+    status::Availability,
+};
 use connection::GammaConnection;
 pub use ramp::{NEUTRAL_KELVIN, WARMEST_KELVIN};
+
+/// Least time between two ramps sent to the compositor. Each one is a
+/// colour-table commit on every output, so a slider drag is thinned to this
+/// rate and always ends on the value it was released at.
+const RAMP_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Where the slider starts on a screen that has never been warmed. Around the
 /// warmth of an incandescent bulb, which is what most night-lights default to.
@@ -90,6 +100,7 @@ pub async fn run(backend: Backend<NightLightState, NightLightCommand>) {
         }
     };
     apply(&publish, NightLightCommand::Supported(gamma.is_some()));
+    let mut ramp_sent = Instant::now() - RAMP_INTERVAL;
 
     loop {
         let command = match gamma.as_mut() {
@@ -110,13 +121,25 @@ pub async fn run(backend: Backend<NightLightState, NightLightCommand>) {
             return;
         };
         apply(&publish, command);
-        if let Some(link) = gamma.as_mut() {
-            link.hold(publish.read().target());
-        }
+        let Some(link) = gamma.as_mut() else {
+            continue;
+        };
+        time::sleep_until(ramp_sent + RAMP_INTERVAL).await;
+        apply_queued(&publish, &mut commands);
+        link.hold(publish.read().target());
+        ramp_sent = Instant::now();
     }
 }
 
-fn apply(publish: &crate::services::bus::Publisher<NightLightState>, command: NightLightCommand) {
+/// Folds in whatever arrived while the last ramp was cooling down, so only
+/// the newest intent reaches the compositor.
+fn apply_queued(publish: &Publisher<NightLightState>, commands: &mut Commands<NightLightCommand>) {
+    while let Ok(command) = commands.try_recv() {
+        apply(publish, command);
+    }
+}
+
+fn apply(publish: &Publisher<NightLightState>, command: NightLightCommand) {
     publish.edit(|state| match command {
         NightLightCommand::Supported(true) => {
             let changed = state.availability != Availability::Ready;

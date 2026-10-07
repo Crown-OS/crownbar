@@ -29,6 +29,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
 };
 
 use super::ramp::ramps;
+use crate::util::fd;
 
 const OUTPUT_VERSION: u32 = 4;
 
@@ -111,6 +112,10 @@ impl GammaConnection {
 
     /// Waits for the compositor and handles whatever it said: ramp sizes,
     /// outputs coming and going.
+    ///
+    /// libwayland reports a drained socket as a successful read of nothing,
+    /// so readiness is cleared by asking the socket itself; trusting the read
+    /// would leave tokio waking this task in a loop forever.
     pub async fn dispatch(&mut self) -> Result<(), GammaError> {
         self.queue.dispatch_pending(&mut self.outputs)?;
         self.connection.flush()?;
@@ -118,11 +123,12 @@ impl GammaConnection {
         if let Some(guard) = self.queue.prepare_read() {
             match guard.read() {
                 Ok(_) => {}
-                Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {
-                    ready.clear_ready()
-                }
+                Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
                 Err(error) => return Err(error.into()),
             }
+        }
+        if !fd::has_input(self.connection.as_fd())? {
+            ready.clear_ready();
         }
         self.queue.dispatch_pending(&mut self.outputs)?;
         Ok(())

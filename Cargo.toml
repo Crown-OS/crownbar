@@ -37,7 +37,7 @@ kurbo = "0.13"
 # connection of its own rather than reaching into the UI's.
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "event"] }
 bluer = { version = "0.17.4", features = ["bluetoothd", "full", "id", "rfcomm"] }
 pipewire-native = "0.1.4"
 pipewire-native-spa = "0.1.4"
