@@ -138,10 +138,9 @@ pub struct Palette {
     pub bar_fg_hover: Color,
     /// Third-level foreground — the trailing glyphs of a panel row.
     pub fg_dim: Color,
-    /// Popup panel body, rim and drop shadow.
+    /// Popup panel body and rim.
     pub panel_bg: Color,
     pub panel_rim: Color,
-    pub panel_shadow: Color,
     /// Degraded but working: an open network, a battery held back to save power.
     pub warning: Color,
     /// Healthy: a charging battery.
@@ -177,7 +176,6 @@ impl Palette {
             fg_dim: theme.popover.muted_text,
             panel_bg,
             panel_rim: kit::panel_rim(theme, opacity),
-            panel_shadow: theme.surface.shadow,
             warning: theme.status.warning,
             success: theme.status.success,
             danger: theme.status.danger,

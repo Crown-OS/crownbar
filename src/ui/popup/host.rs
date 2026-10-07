@@ -4,24 +4,24 @@
 //! [`super::motion`]). Everything that has to agree with it follows the same
 //! frame: the body laid out at the shape as it lands on screen, the rows
 //! stretched onto it from its corner, and the material the compositor renders
-//! *under* it — the blur, its vibrancy, the refractive rim and the drop shadow,
-//! which a translucent surface cannot do for itself because what sits behind
-//! it belongs to other clients. A compositor that will not blur gets an opaque
+//! *under* it — the blur, its vibrancy and the refractive rim, which a
+//! translucent surface cannot do for itself because what sits behind it
+//! belongs to other clients. A compositor that will not blur gets an opaque
 //! body instead: a translucent panel over an unblurred wallpaper is not readable.
 
 use config::BarPosition;
 use crownui::{
     kit::INTER_FAMILY,
     prelude::{
-        Color, Listeners, Material, MaterialBlur, MaterialShadow, Runtime, Styled, TRANSPARENT,
-        Vector, View, bind, component, for_each, keyed, show, vstack, zstack,
+        Listeners, Material, MaterialBlur, Runtime, Styled, TRANSPARENT, View, bind, component,
+        for_each, keyed, show, vstack, zstack,
     },
 };
 
 use super::{PANEL_WIDTH, close, host_offset, rows};
 use crate::{
     animation::SpringProfile,
-    theme::{self, Palette},
+    theme,
     ui::{pill::nothing, state::Bar},
 };
 
@@ -34,8 +34,6 @@ const BLUR_RADIUS: f32 = 32.0;
 const BLUR_VIBRANCY: f32 = 1.25;
 /// Width of the compositor's refractive rim just inside the panel's edge.
 const RIM: f32 = 1.0;
-const SHADOW_DY: f32 = 8.0;
-const SHADOW_BLUR: f32 = 24.0;
 const ROWS_PAD_Y: f32 = 8.0;
 
 /// The area beside the bar, starting where the bar's reserved space ends so a
@@ -100,7 +98,7 @@ fn body(bar: Bar) -> impl View {
             .material(bind(move |runtime| {
                 let alpha = frame.with(runtime, |frame| frame.alpha);
                 if blurred.get(runtime) {
-                    material(&bar.palette.get(runtime), alpha)
+                    material(alpha)
                 } else {
                     Material::default()
                 }
@@ -174,7 +172,7 @@ fn rows_layer(bar: Bar) -> impl View {
 /// panel — a radius that tracks the fade keeps the wallpaper from going
 /// frosted before there is anything on it — and squaring it lets the blur,
 /// and the rim with it, reach zero while the rows are still just visible.
-fn material(palette: &Palette, alpha: f32) -> Material {
+fn material(alpha: f32) -> Material {
     let strength = alpha.clamp(0.0, 1.0);
     Material {
         corner_radius: RADIUS,
@@ -184,17 +182,6 @@ fn material(palette: &Palette, alpha: f32) -> Material {
             tint: TRANSPARENT,
             saturation: 1.0 + (BLUR_VIBRANCY - 1.0) * strength,
         }),
-        shadow: Some(MaterialShadow {
-            radius: SHADOW_BLUR,
-            offset: Vector::new(0.0, SHADOW_DY),
-            color: fade(palette.panel_shadow, strength),
-        }),
-    }
-}
-
-fn fade(color: Color, alpha: f32) -> Color {
-    Color {
-        a: color.a * alpha,
-        ..color
+        shadow: None,
     }
 }
