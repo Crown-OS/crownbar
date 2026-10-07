@@ -4,11 +4,11 @@
 //! loop iteration finishes, so it must never be taken from the event loop or a
 //! runtime worker. Registry and node callbacks land on the loop thread and
 //! publish straight from there; commands arrive on this thread and take the
-//! lock around each call.
+//! lock around each batch, a drag's run of levels collapsed to its last.
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, mpsc::Receiver},
+    sync::{Arc, Mutex},
 };
 
 use pipewire_native::{
@@ -34,7 +34,7 @@ use crate::services::{
         props::{self, PropsUpdate},
         route,
     },
-    bus::Publisher,
+    bus::{Commands, Publisher},
     status::Availability,
 };
 
@@ -73,7 +73,7 @@ impl Card {
     }
 }
 
-pub fn run(publish: Publisher<AudioState>, commands: Receiver<AudioCommand>) {
+pub fn run(publish: Publisher<AudioState>, mut commands: Commands<AudioCommand>) {
     // Sets up the crate's global support libraries and logging. Every other
     // call in the crate, `ThreadLoop::new` included, assumes it has run.
     pipewire_native::init();
@@ -107,8 +107,14 @@ pub fn run(publish: Publisher<AudioState>, commands: Receiver<AudioCommand>) {
     });
 
     loop_.run();
-    while let Ok(command) = commands.recv() {
+    while let Some(mut command) = commands.blocking_recv() {
         let _guard = loop_.lock();
+        while let Ok(next) = commands.try_recv() {
+            if !next.supersedes(&command) {
+                apply(command, &tracked, &publish);
+            }
+            command = next;
+        }
         apply(command, &tracked, &publish);
     }
     loop_.quit();

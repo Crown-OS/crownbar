@@ -33,7 +33,7 @@ impl Services {
         let rt = runtime::build()?;
 
         let (audio_backend, audio) = bus::connect(audio::AudioState::default(), &wake);
-        rt.spawn(audio::run(audio_backend));
+        audio::run(audio_backend);
 
         let (battery_backend, battery) = bus::connect(battery::BatteryState::default(), &wake);
         rt.spawn(battery::run(battery_backend));

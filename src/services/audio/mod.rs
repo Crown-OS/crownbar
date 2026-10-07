@@ -58,29 +58,32 @@ pub enum AudioCommand {
 
 pub type Channel = crate::services::bus::Channel<AudioState, AudioCommand>;
 
-/// Bridge the command pipe to the PipeWire thread.
+/// Start the PipeWire thread.
 ///
 /// PipeWire's loop is not async and its lock blocks until the current
 /// iteration finishes, so it gets a thread of its own rather than a runtime
-/// worker. This task exists only to carry commands across.
-pub async fn run(backend: Backend<AudioState, AudioCommand>) {
-    let Backend {
-        publish,
-        mut commands,
-    } = backend;
-    let (tx, rx) = std::sync::mpsc::channel();
-
+/// worker, and reads the command pipe there directly.
+pub fn run(backend: Backend<AudioState, AudioCommand>) {
+    let Backend { publish, commands } = backend;
     if let Err(e) = std::thread::Builder::new()
         .name("crownbar-pw".into())
-        .spawn(move || backend::run(publish, rx))
+        .spawn(move || backend::run(publish, commands))
     {
         log::warn!("could not start the pipewire thread: {e}");
-        return;
     }
+}
 
-    while let Some(command) = commands.recv().await {
-        if tx.send(command).is_err() {
-            return;
+impl AudioCommand {
+    /// Whether this makes `earlier` moot when it follows it directly: a drag
+    /// sends a level per pointer event, and only the newest is worth writing.
+    fn supersedes(&self, earlier: &Self) -> bool {
+        match (self, earlier) {
+            (Self::SetOutputVolume(_), Self::SetOutputVolume(_))
+            | (Self::SetInputVolume(_), Self::SetInputVolume(_)) => true,
+            (Self::SetNodeVolume { id, .. }, Self::SetNodeVolume { id: before, .. }) => {
+                id == before
+            }
+            _ => false,
         }
     }
 }
@@ -193,5 +196,28 @@ impl AudioState {
             availability: Availability::Unavailable(reason.into()),
             ..Default::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AudioCommand::*;
+
+    #[test]
+    fn a_level_supersedes_the_level_before_it_for_the_same_target() {
+        assert!(SetOutputVolume(0.5).supersedes(&SetOutputVolume(0.4)));
+        assert!(SetInputVolume(0.5).supersedes(&SetInputVolume(0.4)));
+        assert!(
+            SetNodeVolume { id: 7, level: 0.5 }.supersedes(&SetNodeVolume { id: 7, level: 0.4 })
+        );
+    }
+
+    #[test]
+    fn other_targets_and_kinds_are_kept() {
+        assert!(!SetOutputVolume(0.5).supersedes(&SetInputVolume(0.4)));
+        assert!(!SetOutputVolume(0.5).supersedes(&SetOutputMuted(true)));
+        assert!(
+            !SetNodeVolume { id: 7, level: 0.5 }.supersedes(&SetNodeVolume { id: 8, level: 0.4 })
+        );
     }
 }
