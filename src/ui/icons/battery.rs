@@ -58,6 +58,14 @@ pub(super) const DIGITS_WEIGHT: u16 = 600;
 /// Inter's semibold figures are tabular at about this fraction of an em, which
 /// is what fits three of them inside the body without shaping them first.
 const DIGIT_ADVANCE: f64 = 0.62;
+/// Inter's ascent, descent and figure height, in ems.
+const ASCENT: f64 = 1984.0 / 2048.0;
+const DESCENT: f64 = 494.0 / 2048.0;
+const FIGURE_H: f64 = 1490.0 / 2048.0;
+/// A one-em line box splits its height in the font's ascent-to-descent ratio,
+/// which leaves the figures above its middle; this is how far, in ems, they
+/// drop to sit centred on the cell.
+const DIGITS_DROP: f64 = 0.5 - ASCENT / (ASCENT + DESCENT) + FIGURE_H * 0.5;
 
 /// Smallest an accessory is drawn as it fades in, so it grows out of the
 /// terminal rather than materialising at full size.
@@ -91,6 +99,9 @@ pub struct ReadoutPlan {
     pub edge: f64,
     /// Digit size that keeps three of them inside the body.
     pub font_size: f32,
+    /// How far the reading is lowered so its figures, not its line box, are
+    /// centred on the cell.
+    pub drop: f32,
     /// Ink over the charge, then over the empty track.
     pub inks: [Color; 2],
 }
@@ -121,10 +132,12 @@ pub fn readout(state: BatteryState, fg: Color, p: &Palette) -> ReadoutPlan {
     let digits = state.readout.to_string().len() as f64;
     let size = BAR_HEIGHT * DIGITS_SIZE;
     let max = BAR_HEIGHT * BODY_W * DIGITS_MAX_W;
+    let font_size = size.min(max / (digits * DIGIT_ADVANCE));
     ReadoutPlan {
         body: cell.body.rect(),
         edge: cell.charge_edge(state.level),
-        font_size: (size.min(size * max / (digits * DIGIT_ADVANCE * size))) as f32,
+        font_size: font_size as f32,
+        drop: (font_size * DIGITS_DROP) as f32,
         inks: [ink_on(charge, fg, p), ink_on(over_track, fg, p)],
     }
 }
@@ -244,4 +257,34 @@ fn ink_on(under: Color, fg: Color, p: &Palette) -> Color {
 
 fn luma(c: Color) -> f32 {
     0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+}
+
+#[cfg(test)]
+mod tests {
+    use crownconfig::{AccentColor, ThemeOverrides};
+    use crownui::kit::{Theme, ThemeMode};
+
+    use super::*;
+
+    #[test]
+    fn figures_centre_on_the_body() {
+        for readout in [5, 50, 100] {
+            let state = BatteryState {
+                readout,
+                ..Default::default()
+            };
+            let plan = readout_plan(state);
+            let size = f64::from(plan.font_size);
+            let line_top = plan.body.center().y - size * 0.5 + f64::from(plan.drop);
+            let baseline = line_top + size * ASCENT / (ASCENT + DESCENT);
+            let figures_centre = baseline - size * FIGURE_H * 0.5;
+            assert!((figures_centre - plan.body.center().y).abs() < 1e-4);
+        }
+    }
+
+    fn readout_plan(state: BatteryState) -> ReadoutPlan {
+        let theme = Theme::for_mode(ThemeMode::Dark, AccentColor::Purple);
+        let palette = Palette::new(&theme, 0.0, &ThemeOverrides::default());
+        readout(state, palette.bar_fg, &palette)
+    }
 }

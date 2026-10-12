@@ -225,7 +225,7 @@ fn battery(bar: Bar, icon: Memo<Icon>) -> AnyView {
     let side = move |ink: usize| {
         let reading = crownui::prelude::hstack(digits(ink))
             .absolute()
-            .top(0.0)
+            .top(bind(move |runtime| plan(runtime).drop))
             .h_full()
             .items_center()
             .justify_center()
