@@ -2,7 +2,9 @@
 //!
 //! A built-in is named by its own id; a plugin's widget by
 //! `plugin:<plugin>/<widget>`. A built-in left out of every list is not built
-//! at all, and a name nothing answers to is skipped with a warning.
+//! at all, and a name nothing answers to is skipped with a warning — except
+//! the screen-sharing indicator, which is a privacy guarantee rather than a
+//! preference: left out, it goes at the end of the right slot.
 
 use config::BarSettings;
 
@@ -10,8 +12,11 @@ use crate::widgets::{
     BarWidget, WidgetRegistry, WidgetSlot, battery::BatteryWidget, bluetooth::BluetoothWidget,
     brightness::BrightnessWidget, caffeine::CaffeineWidget, clock::ClockWidget,
     layout::LayoutWidget, notifications::NotificationsWidget, remote::RemoteWidget,
-    volume::VolumeWidget, weather::WeatherWidget, wifi::WifiWidget,
+    screencast::ScreencastWidget, volume::VolumeWidget, weather::WeatherWidget, wifi::WifiWidget,
 };
+
+/// The indicator every bar shows while something is being shared.
+const ALWAYS: &str = "screencast";
 
 /// The entries of each slot, left-to-right.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -57,6 +62,7 @@ pub fn builtin(name: &str) -> Option<Box<dyn BarWidget>> {
         "wifi" => Box::new(WifiWidget::new()),
         "battery" => Box::new(BatteryWidget::new()),
         "notifications" => Box::new(NotificationsWidget::new()),
+        "screencast" => Box::new(ScreencastWidget::new()),
         _ => return None,
     };
     Some(widget)
@@ -78,6 +84,9 @@ impl WidgetRegistry {
                 Some(widget) => registry.register(widget, slot),
                 None => log::warn!("bar.ron names `{entry}`, which is no widget"),
             }
+        }
+        if !arrangement.entries().any(|(_, entry)| entry == ALWAYS) {
+            registry.register(Box::new(ScreencastWidget::new()), WidgetSlot::Right);
         }
         registry
     }
@@ -117,7 +126,8 @@ mod tests {
                 "bluetooth",
                 "wifi",
                 "battery",
-                "notifications"
+                "notifications",
+                "screencast"
             ]
         );
     }
@@ -139,6 +149,7 @@ mod tests {
                 ),
                 (WidgetSlot::Center, "clock".to_owned()),
                 (WidgetSlot::Right, "battery".to_owned()),
+                (WidgetSlot::Right, "screencast".to_owned()),
             ]
         );
         let plugin = registry

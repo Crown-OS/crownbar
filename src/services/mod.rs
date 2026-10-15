@@ -21,6 +21,7 @@ pub mod nightlight;
 pub mod notifications;
 pub mod plugins;
 pub mod power;
+pub mod screencast;
 pub mod stats;
 pub mod weather;
 

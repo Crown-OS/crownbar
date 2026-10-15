@@ -7,6 +7,7 @@ pub mod layout;
 pub mod notifications;
 pub mod popup;
 pub mod remote;
+pub mod screencast;
 pub mod volume;
 pub mod weather;
 pub mod wifi;
@@ -77,6 +78,11 @@ pub enum Icon {
         blend: f32,
         night: f32,
     },
+    /// A screen with a recording light: shown while something is being
+    /// shared. `pulse` ∈ [0, 1] breathes the light so it is noticed.
+    ScreenShare {
+        pulse: f32,
+    },
     /// A fixed, SVG-authored glyph with no animated state. Panels are full of
     /// these — a headphone, a laptop, a chevron — and they would each need a
     /// variant of their own otherwise.
@@ -103,6 +109,9 @@ pub enum Rune {
     Leaf,
     Gauge,
     Bolt,
+    /// What a screen cast can show: a window, or a workspace.
+    Window,
+    Workspace,
 }
 
 /// Battery visual state. Everything but the readout is spring-smoothed, so a

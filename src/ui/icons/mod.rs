@@ -14,6 +14,7 @@ mod glyph;
 mod layout;
 mod notifications;
 mod rune;
+mod screenshare;
 mod volume;
 mod weather;
 mod wifi;
@@ -99,6 +100,7 @@ pub fn draw_in(scene: &mut Scene<'_>, icon: Icon, bounds: Rect, fg: Color, p: &P
             blend,
             night,
         } => weather::draw(scene, bounds, from, to, blend, night, &p.weather),
+        Icon::ScreenShare { pulse } => screenshare::draw(scene, bounds, fg, p.danger, pulse),
         Icon::Rune(r) => rune::draw(scene, bounds, fg, r),
     }
 }

@@ -40,6 +40,8 @@ const WARNING: &str = "M12 3 L22.5 20.5 L1.5 20.5 Z M12 10v4.5 M12 17.5h.01";
 const LEAF: &str = "M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12";
 const GAUGE: &str = "M12 14 L16 10 M3.34 19a10 10 0 1 1 17.32 0";
 const BOLT: &str = "M13 2 L3 14h9l-1 8 10-12h-9l1-8z";
+const WINDOW: &str = "M3 5h18v14H3z M3 9h18 M6 7h.01 M9 7h.01";
+const WORKSPACE: &str = "M3 4h8v7H3z M13 4h8v7h-8z M3 13h8v7H3z M13 13h8v7h-8z";
 
 fn svg(rune: Rune) -> &'static str {
     match rune {
@@ -58,6 +60,8 @@ fn svg(rune: Rune) -> &'static str {
         Rune::Leaf => LEAF,
         Rune::Gauge => GAUGE,
         Rune::Bolt => BOLT,
+        Rune::Window => WINDOW,
+        Rune::Workspace => WORKSPACE,
     }
 }
 
@@ -76,7 +80,7 @@ fn glyph_for(rune: Rune) -> &'static Glyph {
     }
     cached!(
         Headphones, Speaker, Laptop, Display, Keyboard, Phone, Microphone, Sun, Moon, Wifi,
-        Bluetooth, Warning, Leaf, Gauge, Bolt,
+        Bluetooth, Warning, Leaf, Gauge, Bolt, Window, Workspace,
     )
 }
 

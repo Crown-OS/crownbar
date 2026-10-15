@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 
 use crate::services::{
     Wake, audio, battery, bluetooth, brightness, bus, caffeine, network, nightlight, notifications,
-    plugins, power, runtime, stats, weather,
+    plugins, power, runtime, screencast, stats, weather,
 };
 
 pub struct Services {
@@ -22,6 +22,7 @@ pub struct Services {
     pub notifications: notifications::Channel,
     pub plugins: plugins::Channel,
     pub power: power::Channel,
+    pub screencast: screencast::Channel,
     pub stats: stats::Channel,
     pub weather: weather::Channel,
     /// Dropping this stops every backend.
@@ -66,6 +67,10 @@ impl Services {
         let (power_backend, power) = bus::connect(power::PowerState::default(), &wake);
         rt.spawn(power::run(power_backend));
 
+        let (screencast_backend, screencast) =
+            bus::connect(screencast::ScreencastState::default(), &wake);
+        rt.spawn(screencast::run(screencast_backend));
+
         let (stats_backend, stats) = bus::connect(stats::StatsState::default(), &wake);
         rt.spawn(stats::run(stats_backend));
 
@@ -83,6 +88,7 @@ impl Services {
             notifications,
             plugins,
             power,
+            screencast,
             stats,
             weather,
             _runtime: rt,
