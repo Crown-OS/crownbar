@@ -3,46 +3,37 @@
 //!
 //! Everything here is a spring, and every spring is integrated rather than
 //! sampled off a curve — so a panel interrupted halfway out carries the
-//! velocity it already had into wherever it is sent next, the way a real thing
-//! does and a keyframed one cannot.
+//! velocity it already had into wherever it is sent next.
 //!
-//! Three motions, each modelled on something physical:
+//! **Out** is one critically damped spring ([`SpringProfile::SNAPPY`]): the
+//! panel grows from [`BIRTH_SCALE`] about the pill it hangs from, settles the
+//! last [`DROP`] px onto its resting place and fades in, arriving without
+//! overshoot.
 //!
-//! * **Out of the pill** — the panel is thrown from the icon it belongs to at
-//!   [`BIRTH_SCALE`], falls the last [`DROP`] px onto its resting place and
-//!   overshoots once ([`SpringProfile::BOUNCE`]) before settling, like a drawer
-//!   pushed open against its stop.
-//! * **Squash and stretch** — while it is moving it stretches along its travel
-//!   and narrows across it, in proportion to the spring's own velocity, and
-//!   gives that back as it stops. A body under acceleration deforms; a body at
-//!   rest does not, which is why this falls out of the velocity for free.
-//! * **Away** — [`SpringProfile::DROP`] with a shove ([`CLOSE_KICK`]): stiff,
-//!   over-damped and already moving on the first frame, so it leaves rather
-//!   than deflates.
+//! **Away** runs the same spring back on [`SpringProfile::DROP`] with a shove
+//! ([`CLOSE_KICK`]): over-damped and already moving on the first frame, so it
+//! leaves rather than deflates, and never bounces back into view.
 //!
 //! Switching panels never replays any of that. The shape itself travels to the
-//! new one's bounds while the two sets of rows cross-fade inside it (on the
-//! render thread, as the old rows leave and the new ones arrive), so a click
+//! new one's bounds while the two sets of rows cross-fade inside it, so a click
 //! on the next pill reads as the same object changing rather than one object
 //! being destroyed and another built.
 
 use kurbo::{Affine, Point, Rect};
 
-use crate::animation::{Spring, SpringProfile};
+use crate::{
+    animation::{Spring, SpringProfile},
+    ui::PANEL_GAP,
+};
 
-/// Fraction of its final size the panel is thrown from.
-const BIRTH_SCALE: f64 = 0.88;
-/// How far above its resting place it starts, in px.
-const DROP: f64 = 10.0;
+/// Fraction of its final size the panel grows from.
+const BIRTH_SCALE: f64 = 0.94;
+/// How far above its resting place it starts, in px: no further than the gap
+/// to the bar, so the body never slides under the edge it is clipped to while
+/// the compositor's blur, which nothing clips, carries on past it.
+const DROP: f64 = PANEL_GAP as f64;
 /// Velocity the close is shoved off with, in units of the 0..1 progress/second.
 const CLOSE_KICK: f32 = -2.2;
-/// Seconds of the open spring's velocity taken as stretch along the travel.
-const STRETCH: f32 = 0.010;
-/// Ceiling on that, so a spring caught at full speed deforms rather than tears.
-const MAX_STRETCH: f64 = 0.035;
-/// How much of the stretch comes back off the other axis. Not 1.0: the panel
-/// keeps most of its area the way a dropped ball does, not all of it.
-const VOLUME_PRESERVATION: f64 = 0.55;
 /// Opacity leads the motion — solid by the time it is half out, which reads as
 /// quicker than it is.
 const ALPHA_LEAD: f32 = 2.2;
@@ -62,7 +53,7 @@ pub enum Opening {
 pub struct Frame {
     /// The morphing shape, in surface px, before the spring-out transform.
     pub bounds: Rect,
-    /// Spring-out, drop and squash, about the pill the panel hangs from.
+    /// Spring-out and drop, about the pill the panel hangs from.
     pub transform: Affine,
     pub alpha: f32,
 }
@@ -73,7 +64,7 @@ impl Frame {
         self.transform.transform_rect_bbox(self.bounds)
     }
 
-    /// How much the rows are stretched along each axis on their way to
+    /// How much the rows are scaled along each axis on their way to
     /// [`visible`](Self::visible), from its top-left corner.
     pub fn scale(&self) -> (f64, f64) {
         let [scale_x, _, _, scale_y, _, _] = self.transform.as_coeffs();
@@ -83,8 +74,8 @@ impl Frame {
 
 /// The springs behind one popup surface.
 pub struct PanelMotion {
-    /// 0 = dismissed, 1 = fully out, and past 1 while it overshoots.
-    open: Spring,
+    /// Size, drop and fade: 0 = dismissed, 1 = fully out.
+    reveal: Spring,
     /// The shape's four edges, so a panel of another size is travelled to
     /// rather than cut to.
     edges: [Spring; 4],
@@ -96,28 +87,32 @@ pub struct PanelMotion {
 impl PanelMotion {
     pub const fn new() -> Self {
         Self {
-            open: Spring::with_profile(0.0, SpringProfile::BOUNCE),
-            edges: [Spring::with_profile(0.0, SpringProfile::GLIDE); 4],
+            reveal: Spring::with_profile(0.0, SpringProfile::SNAPPY),
+            edges: [Spring::with_profile(0.0, SpringProfile::SNAPPY); 4],
             unplaced: true,
         }
     }
 
-    /// Throw the panel out of its pill. `replacing` is whether another panel
+    /// Bring the panel out of its pill. `replacing` is whether another panel
     /// is already on screen — then the shape morphs instead of the whole thing
-    /// being launched again.
+    /// being brought out again.
     pub fn open(&mut self, replacing: bool) {
         self.unplaced = !replacing;
         if replacing {
             return;
         }
-        self.open.set_profile(SpringProfile::BOUNCE);
-        self.open.set_target(1.0);
+        self.reveal.set_profile(SpringProfile::SNAPPY);
+        self.reveal.set_target(1.0);
     }
 
     pub fn close(&mut self) {
-        self.open.set_profile(SpringProfile::DROP);
-        self.open.set_target(0.0);
-        self.open.nudge(CLOSE_KICK);
+        self.reveal.set_profile(SpringProfile::DROP);
+        self.reveal.set_target(0.0);
+        self.reveal.nudge(CLOSE_KICK);
+    }
+
+    fn springs(&mut self) -> impl Iterator<Item = &mut Spring> {
+        std::iter::once(&mut self.reveal).chain(&mut self.edges)
     }
 
     /// Aim the shape at `bounds`.
@@ -133,24 +128,23 @@ impl PanelMotion {
     }
 
     pub fn step(&mut self, dt: f32) -> bool {
-        let mut busy = false;
-        for spring in std::iter::once(&mut self.open).chain(&mut self.edges) {
-            if !spring.at_rest() {
+        self.springs().fold(false, |busy, spring| {
+            let moving = !spring.at_rest();
+            if moving {
                 spring.step(dt);
-                busy = true;
             }
-        }
-        busy
+            busy | moving
+        })
     }
 
     /// Nothing on screen and nothing on its way there.
     pub fn invisible(&self) -> bool {
-        self.open.position <= HIDDEN && self.open.at_rest()
+        self.reveal.position <= HIDDEN && self.reveal.at_rest()
     }
 
     #[cfg(test)]
-    fn at_rest(&self) -> bool {
-        self.open.at_rest() && self.edges.iter().all(Spring::at_rest)
+    fn at_rest(&mut self) -> bool {
+        self.springs().all(|spring| spring.at_rest())
     }
 
     /// Resolve the frame, hanging from the pill centred on `anchor_x`.
@@ -158,12 +152,8 @@ impl PanelMotion {
         let [x0, y0, x1, y1] = self.edges.map(|edge| edge.position as f64);
         let bounds = Rect::new(x0, y0, x1, y1);
 
-        let progress = self.open.position as f64;
-        let scale = BIRTH_SCALE + (1.0 - BIRTH_SCALE) * progress;
-        // Positive while it is coming out, negative while it is settling back
-        // against its own overshoot — so the panel stretches into the motion
-        // and squashes as the motion stops.
-        let stretch = ((self.open.velocity * STRETCH) as f64).clamp(-MAX_STRETCH, MAX_STRETCH);
+        let revealed = f64::from(self.reveal.position);
+        let scale = BIRTH_SCALE + (1.0 - BIRTH_SCALE) * revealed;
         let (edge, drop) = match opening {
             Opening::Down => (bounds.y0, -DROP),
             Opening::Up => (bounds.y1, DROP),
@@ -172,15 +162,9 @@ impl PanelMotion {
 
         Frame {
             bounds,
-            transform: Affine::translate((0.0, drop * (1.0 - progress)))
-                * about(
-                    pivot,
-                    Affine::scale_non_uniform(
-                        scale * (1.0 - stretch * VOLUME_PRESERVATION),
-                        scale * (1.0 + stretch),
-                    ),
-                ),
-            alpha: (self.open.position * ALPHA_LEAD).clamp(0.0, 1.0),
+            transform: Affine::translate((0.0, drop * (1.0 - revealed)))
+                * about(pivot, Affine::scale(scale)),
+            alpha: (self.reveal.position * ALPHA_LEAD).clamp(0.0, 1.0),
         }
     }
 }
@@ -230,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn it_is_thrown_out_of_its_pill_and_overshoots_once() {
+    fn it_grows_out_of_its_pill_without_overshooting() {
         let mut motion = PanelMotion::new();
         motion.open(false);
         motion.reshape(FIRST);
@@ -249,7 +233,7 @@ mod tests {
                 break;
             }
         }
-        assert!(peak > FIRST.height(), "never overshot: peaked at {peak}");
+        assert!(peak <= FIRST.height() + 0.5, "overshot to {peak}");
         assert!(motion.at_rest());
         assert!((motion.frame(0.0, Opening::Down).visible().height() - FIRST.height()).abs() < 1.0);
     }
@@ -270,7 +254,14 @@ mod tests {
         // second one being opened.
         assert_eq!(midway.alpha, 1.0);
 
-        settle(&mut motion);
+        let mut furthest = f64::MIN;
+        for _ in 0..600 {
+            furthest = furthest.max(motion.frame(0.0, Opening::Down).bounds.x0);
+            if !motion.step(FRAME) {
+                break;
+            }
+        }
+        assert!(furthest <= SECOND.x0 + 0.5, "overshot to {furthest}");
         assert!(!motion.invisible());
         assert!((motion.frame(0.0, Opening::Down).bounds.height() - SECOND.height()).abs() < 1.0);
     }
@@ -282,12 +273,46 @@ mod tests {
         motion.step(FRAME);
         // A spring released from rest covers a couple of percent of its travel
         // in the first frame, which reads as a hesitation before a dismissal.
-        let shrink = 1.0 - motion.frame(0.0, Opening::Down).visible().height() / FIRST.height();
-        assert!(shrink > 0.02, "crept off by {shrink} on the first frame");
+        let shrunk = 1.0 - motion.frame(0.0, Opening::Down).visible().height() / FIRST.height();
+        let travelled = shrunk / (1.0 - BIRTH_SCALE);
+        assert!(
+            travelled > 0.02,
+            "crept off by {travelled} on the first frame"
+        );
 
         let peak = settle(&mut motion);
         assert!(peak <= FIRST.height(), "a dismissal bounced to {peak}");
         assert!(motion.invisible());
+    }
+
+    #[test]
+    fn it_never_falls_past_its_resting_place() {
+        let mut motion = PanelMotion::new();
+        motion.open(false);
+        motion.reshape(FIRST);
+        let mut deepest = f64::MIN;
+        for _ in 0..600 {
+            deepest = deepest.max(motion.frame(0.0, Opening::Down).transform.as_coeffs()[5]);
+            if !motion.step(FRAME) {
+                break;
+            }
+        }
+        assert!(deepest <= 0.01, "fell past its place by {deepest}");
+    }
+
+    #[test]
+    fn a_panel_never_leaves_the_area_it_opens_into() {
+        let resting = Rect::new(100.0, PANEL_GAP as f64, 396.0, 200.0);
+        let mut motion = PanelMotion::new();
+        motion.open(false);
+        motion.reshape(resting);
+        for _ in 0..600 {
+            let top = motion.frame(0.0, Opening::Down).visible().y0;
+            assert!(top >= -1e-9, "rose to {top} past the bar's edge");
+            if !motion.step(FRAME) {
+                break;
+            }
+        }
     }
 
     #[test]

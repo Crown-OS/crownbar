@@ -55,18 +55,22 @@ fn open(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
             widget.popup_opened(&state.services);
         }
     });
-    popup.owner.set(cx, Some(idx));
-    popup.anchor_x.set(cx, anchor_x);
     let shown = popup.shown.with_untracked(cx, |shown| *shown);
     let present = popup.present.with_untracked(cx, |present| *present);
     // One panel handing over to another, rather than one being thrown out of
-    // its pill: the shape travels and the rows cross-fade.
+    // its pill: the shape travels and the rows slide across inside it.
     let replacing = previous.is_some() && present;
+    let from_x = popup.anchor_x.with_untracked(cx, |anchor| *anchor);
+    let slide = if replacing {
+        (anchor_x - from_x).signum()
+    } else {
+        0.0
+    };
+    popup.slide.set(cx, slide);
+    popup.owner.set(cx, Some(idx));
+    popup.anchor_x.set(cx, anchor_x);
     if shown != Some(idx) || previous.is_none() {
         popup.motion.update(cx, |motion| motion.open(replacing));
-    }
-    if shown != Some(idx) {
-        popup.shown.set(cx, Some(idx));
     }
     popup.present.set(cx, true);
     animate(cx, bar, 0);
@@ -160,6 +164,12 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
     if !popup.present.with_untracked(cx, |present| *present) {
         return false;
     }
+    // A frame behind `owner`, so the outgoing rows have already been sent the
+    // way they slide out before they are taken away.
+    let owner = popup.owner.with_untracked(cx, |owner| *owner);
+    if owner.is_some() && popup.shown.with_untracked(cx, |shown| *shown != owner) {
+        popup.shown.set(cx, owner);
+    }
     let height = popup.height.with_untracked(cx, |height| f64::from(*height));
     if height <= 0.0 {
         return true;
@@ -183,7 +193,6 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
     });
     popup.frame.set(cx, frame);
 
-    let owner = popup.owner.with_untracked(cx, |owner| *owner);
     if owner.is_none() && gone {
         popup.shown.set(cx, None);
         popup.present.set(cx, false);

@@ -13,8 +13,8 @@ use config::BarPosition;
 use crownui::{
     kit::INTER_FAMILY,
     prelude::{
-        Listeners, Material, MaterialBlur, Runtime, Styled, TRANSPARENT, View, bind, component,
-        for_each, keyed, show, vstack, zstack,
+        Listeners, Material, MaterialBlur, Runtime, Styled, TRANSPARENT, Vector, View, bind,
+        component, for_each, keyed, show, vstack, zstack,
     },
 };
 
@@ -35,6 +35,8 @@ const BLUR_VIBRANCY: f32 = 1.8;
 /// Width of the refractive rim just inside the panel's edge, and of the
 /// specular line drawn over it.
 const RIM: f32 = 1.5;
+/// How far rows slide when the panel moves to another pill, in logical px.
+const SLIDE: f32 = PANEL_WIDTH / 3.0;
 
 /// The area beside the bar, starting where the bar's reserved space ends so a
 /// panel thrown out of its pill disappears under the bar's edge rather than
@@ -112,13 +114,15 @@ fn body(bar: Bar) -> impl View {
 }
 
 /// The shown panel's rows, stretched from the body's corner onto the shape as
-/// it lands. A change of panel mounts the next rows while the last ones fade
-/// out where they were.
+/// it lands. A change of panel slides the next rows in from the side the
+/// panel is travelling toward while the last ones slide out the other way.
 fn rows_layer(bar: Bar) -> impl View {
-    let frame = bar.popup.frame;
+    let popup = bar.popup;
+    let frame = popup.frame;
     keyed(
-        move |runtime| bar.popup.shown.get(runtime),
+        move |runtime| popup.shown.get(runtime),
         move |cx, shown| {
+            let arrival = Vector::new(popup.slide.with_untracked(cx, |slide| *slide) * SLIDE, 0.0);
             let rows = cx.signal(Vec::new());
             let declared = cx.signal((0.0, false));
             bar.popup.measured.set(cx, 0.0);
@@ -163,7 +167,17 @@ fn rows_layer(bar: Bar) -> impl View {
             .scale_y(bind(move |runtime| {
                 frame.with(runtime, |frame| frame.scale().1 as f32)
             }))
-            .enter(|style| style.opacity(0.0))
+            .translate(bind(move |runtime| {
+                let owner = popup.owner.get(runtime);
+                let leaving = owner.is_some() && owner != shown;
+                let offset = if leaving {
+                    -popup.slide.get(runtime) * SLIDE
+                } else {
+                    0.0
+                };
+                Vector::new(offset, 0.0)
+            }))
+            .enter(move |style| style.opacity(0.0).translate(arrival))
             .exit(|style| style.opacity(0.0))
             .transition(SpringProfile::SNAPPY.curve())
         },

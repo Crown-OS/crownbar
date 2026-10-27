@@ -35,6 +35,9 @@ pub struct Popup {
     pub shown: Signal<Option<usize>>,
     /// Centre of the pill the panel hangs from, in surface px.
     pub anchor_x: Signal<f32>,
+    /// Which way the panel last travelled to another pill: -1 left, 1 right,
+    /// 0 when it was thrown out of its pill instead.
+    pub slide: Signal<f32>,
     /// Bumped when the shown panel's contents went stale; never replays the
     /// open animation the way a change of `shown` does.
     pub content: Signal<u64>,
@@ -85,6 +88,7 @@ impl Bar {
             owner: cx.signal(None),
             shown: cx.signal(None),
             anchor_x: cx.signal(0.0),
+            slide: cx.signal(0.0),
             content: cx.signal(0),
             height: cx.signal(0.0),
             measured: cx.signal(0.0),
