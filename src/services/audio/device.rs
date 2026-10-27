@@ -224,6 +224,8 @@ impl Stream {
     }
 }
 
+const PLACEHOLDER_SINK: &str = "auto_null";
+
 /// Which side of the server a node sits on, from `media.class`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -236,7 +238,11 @@ pub enum Role {
 impl Role {
     pub fn classify(props: &Properties) -> Option<Self> {
         match props.get("media.class")? {
-            "Audio/Sink" => Some(Self::Output),
+            // WirePlumber's "Dummy Output" fills in while no real sink exists —
+            // at boot, or mid Bluetooth profile switch — and plays nowhere.
+            "Audio/Sink" => {
+                (props.get("node.name") != Some(PLACEHOLDER_SINK)).then_some(Self::Output)
+            }
             // A source whose name ends `.monitor` is a sink's loopback, not a
             // microphone; listing it would offer the user their own speakers
             // as a recording device.
@@ -249,5 +255,36 @@ impl Role {
             "Stream/Input/Audio" => Some(Self::RecordStream),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn props(class: &str, name: &str) -> Properties {
+        let mut props = Properties::new();
+        props.set("media.class", class.into());
+        props.set("node.name", name.into());
+        props
+    }
+
+    #[test]
+    fn the_placeholder_sink_is_not_an_output() {
+        assert_eq!(Role::classify(&props("Audio/Sink", "auto_null")), None);
+    }
+
+    #[test]
+    fn real_sinks_are_outputs() {
+        let sink = props("Audio/Sink", "alsa_output.pci-0000_06_00.6.analog-stereo");
+        assert_eq!(Role::classify(&sink), Some(Role::Output));
+    }
+
+    #[test]
+    fn monitors_are_not_inputs() {
+        assert_eq!(
+            Role::classify(&props("Audio/Source", "auto_null.monitor")),
+            None
+        );
     }
 }
