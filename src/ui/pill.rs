@@ -1,8 +1,9 @@
 //! One widget on the bar: a fully rounded capsule around its glyph and label.
 //!
 //! The capsule's fill fades in under the pointer and stays on while the
-//! widget's panel is up; the label brightens with it. Both are transitions the
-//! render thread runs, so hovering costs the UI thread one signal write.
+//! widget's panel is up; the label shifts under the pointer alone. Both are
+//! transitions the render thread runs, so hovering costs the UI thread one
+//! signal write.
 
 use crownplugin_proto::Part;
 use crownui::{
@@ -61,7 +62,7 @@ impl Kind for PillKind {
         let Self { bar, index } = self;
         let hovered = cx.signal(false);
         let active = cx.memo(move |runtime| bar.popup.owner.get(runtime) == Some(index));
-        let lit = cx.memo(move |runtime| active.get(runtime) || hovered.get(runtime));
+        let lit = cx.memo(move |runtime| hovered.get(runtime));
         let icon = cx.memo(move |runtime| bar.read(runtime, index, |widget| widget.icon()));
 
         for listener in [
