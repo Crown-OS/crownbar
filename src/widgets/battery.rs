@@ -128,14 +128,7 @@ impl BarWidget for BatteryWidget {
             title: "Battery".into(),
             toggle: None,
         });
-        panel.row(
-            Item::new(format!("{}%", charge.percent()))
-                .plain()
-                .icon(self.icon())
-                .detail(charge.summary())
-                .enabled(false)
-                .row(),
-        );
+        panel.row(Item::new(charge.summary()).plain().enabled(false).row());
 
         let profiles = &self.power.profiles;
         if !profiles.supported.is_empty() {

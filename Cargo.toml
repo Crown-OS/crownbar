@@ -33,6 +33,8 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 kurbo = "0.13"
+# The battery reading is drawn as Inter's own outlines, centred on their ink.
+ttf-parser = "0.25"
 # Nightlight's gamma ramps belong to no surface, so the service holds a Wayland
 # connection of its own rather than reaching into the UI's.
 wayland-client = "0.31"

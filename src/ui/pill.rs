@@ -10,7 +10,7 @@ use crownui::{
     kit::INTER_FAMILY,
     prelude::{
         AnyView, Cx, Element, Memo, Role, Semantic, Styled, View, bind, canvas, keyed, show, text,
-        vstack, zstack,
+        vstack,
     },
 };
 use kurbo::Point;
@@ -18,13 +18,7 @@ use kurbo::Point;
 use crate::{
     animation::SpringProfile,
     theme::{self, FONT_SIZE, FONT_WEIGHT, PILL_PAD_X},
-    ui::{
-        frames::animate,
-        icons::{self, ReadoutPlan},
-        popup, remote,
-        scene::Scene,
-        state::Bar,
-    },
+    ui::{frames::animate, icons, popup, remote, scene::Scene, state::Bar},
     widgets::{Icon, bit},
 };
 
@@ -185,21 +179,13 @@ fn plugin(bar: Bar, index: usize, lit: Memo<bool>) -> impl View {
     .h_full()
 }
 
-/// The battery cell, with its reading laid over it in two inks: each copy is
-/// clipped to one side of the charge line, so a reading that straddles it
-/// stays legible over the fill and over the empty track alike.
+/// The battery cell, its reading drawn into it, as wide as its accessory has
+/// grown.
 fn battery(bar: Bar, icon: Memo<Icon>) -> AnyView {
-    let state = move |icon: Icon| match icon {
-        Icon::Battery(state) => state,
-        _ => Default::default(),
-    };
-    let plan = move |runtime: &mut crownui::prelude::Runtime| {
-        let battery = state(icon.get(runtime));
-        let palette = bar.palette.get(runtime);
-        icons::battery_readout(battery, palette.bar_fg, &palette)
-    };
-    let cell = canvas(move |runtime, size, list| {
-        let battery = state(icon.get(runtime));
+    canvas(move |runtime, size, list| {
+        let Icon::Battery(battery) = icon.get(runtime) else {
+            return;
+        };
         let palette = bar.palette.get(runtime);
         let origin = Point::new(0.0, f64::from(size.height) * 0.5);
         icons::draw_battery(
@@ -210,55 +196,9 @@ fn battery(bar: Bar, icon: Memo<Icon>) -> AnyView {
             &palette,
         );
     })
-    .absolute()
-    .inset(0.0);
-    let digits = move |ink: usize| {
-        text(bind(move |runtime| {
-            state(icon.get(runtime)).readout.to_string()
-        }))
-        .font_family(INTER_FAMILY)
-        .text_size(bind(move |runtime| plan(runtime).font_size))
-        .font_weight(icons::READOUT_WEIGHT)
-        .leading(1.0)
-        .text_color(bind(move |runtime| plan(runtime).inks[ink]))
-    };
-    let side = move |ink: usize| {
-        let reading = crownui::prelude::hstack(digits(ink))
-            .absolute()
-            .top(bind(move |runtime| plan(runtime).drop))
-            .h_full()
-            .items_center()
-            .justify_center()
-            .left(bind(move |runtime| half(plan(runtime), ink).1))
-            .w(bind(move |runtime| plan(runtime).body.width() as f32));
-        vstack(reading)
-            .absolute()
-            .top(0.0)
-            .h_full()
-            .overflow_hidden()
-            .left(bind(move |runtime| half(plan(runtime), ink).0))
-            .w(bind(move |runtime| half(plan(runtime), ink).2))
-    };
-    zstack((cell, side(0), side(1)))
-        .relative()
-        .h_full()
-        .w(bind(move |runtime| icons::advance(icon.get(runtime))))
-        .boxed()
-}
-
-/// One side of the charge line: where its clip starts, where the reading sits
-/// inside that clip so it stays centred on the cell, and how wide the clip is.
-fn half(plan: ReadoutPlan, ink: usize) -> (f32, f32, f32) {
-    let (start, end) = if ink == 0 {
-        (plan.body.x0, plan.edge)
-    } else {
-        (plan.edge, plan.body.x1)
-    };
-    (
-        start as f32,
-        (plan.body.x0 - start) as f32,
-        (end - start).max(0.0) as f32,
-    )
+    .h_full()
+    .w(bind(move |runtime| icons::advance(icon.get(runtime))))
+    .boxed()
 }
 
 fn label_view(bar: Bar, icon: Memo<Icon>, label: Memo<String>, lit: Memo<bool>) -> impl View {

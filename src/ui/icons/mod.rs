@@ -13,6 +13,7 @@ mod caffeine;
 mod glyph;
 mod layout;
 mod notifications;
+mod numerals;
 mod rune;
 mod screenshare;
 mod volume;
@@ -25,14 +26,10 @@ use kurbo::Rect;
 
 use crate::{theme::Palette, widgets::Icon};
 
-pub use battery::{ReadoutPlan, readout as battery_readout};
-
 pub const ICON_BOX: f32 = 22.0;
-/// Weight of the battery's reading, which the pill shapes as text.
-pub const READOUT_WEIGHT: u16 = battery::DIGITS_WEIGHT;
 
-/// The bar's battery cell from `origin`, its left edge and vertical centre,
-/// without the reading the pill lays over it.
+/// The bar's battery cell, reading included, from `origin`, its left edge and
+/// vertical centre.
 pub fn draw_battery(
     scene: &mut Scene<'_>,
     origin: kurbo::Point,
