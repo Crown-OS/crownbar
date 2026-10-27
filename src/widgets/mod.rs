@@ -106,9 +106,9 @@ pub enum Rune {
     Bluetooth,
     Warning,
     /// The three power profiles, in the order the panel lists them.
-    Leaf,
-    Gauge,
-    Bolt,
+    GaugeLow,
+    GaugeMid,
+    GaugeHigh,
     /// What a screen cast can show: a window, or a workspace.
     Window,
     Workspace,

@@ -209,8 +209,8 @@ impl BarWidget for BatteryWidget {
 
 fn rune_for(profile: Profile) -> Rune {
     match profile {
-        Profile::Saver => Rune::Leaf,
-        Profile::Balanced => Rune::Gauge,
-        Profile::Performance => Rune::Bolt,
+        Profile::Saver => Rune::GaugeLow,
+        Profile::Balanced => Rune::GaugeMid,
+        Profile::Performance => Rune::GaugeHigh,
     }
 }
