@@ -3,3 +3,4 @@ pub mod cmd;
 pub mod ease;
 pub mod fd;
 pub mod sysfs;
+pub mod theme;

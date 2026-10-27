@@ -9,6 +9,7 @@
 mod host;
 pub mod motion;
 mod rows;
+mod sheen;
 
 pub use host::panel_host;
 
@@ -23,7 +24,9 @@ use crate::{
 use motion::{Opening, PanelMotion};
 
 /// Every panel is this wide, whatever rows it holds.
-pub const PANEL_WIDTH: f32 = crownui::kit::PANEL_WIDTH;
+pub const PANEL_WIDTH: f32 = 340.0;
+/// Concentric with the fully rounded row highlights inset inside it.
+pub const PANEL_RADIUS: f32 = rows::ROW_INSET + rows::ITEM_HEIGHT / 2.0;
 /// Smallest distance the panel keeps from the screen's left/right edges.
 const SCREEN_MARGIN: f64 = 8.0;
 
@@ -232,7 +235,7 @@ mod tests {
     fn a_panel_hangs_centred_under_its_pill() {
         assert_eq!(
             target_bounds(1000.0, 40.0, 200.0, 2560.0),
-            Rect::new(852.0, 40.0, 1148.0, 240.0)
+            Rect::new(830.0, 40.0, 1170.0, 240.0)
         );
     }
 

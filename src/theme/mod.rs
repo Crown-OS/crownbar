@@ -7,22 +7,26 @@
 //!
 //! The panels' own rows take their colors straight from the kit; what is left
 //! here is what the bar paints itself: its ground, its pills, its glyphs, and
-//! the body every panel sits on.
+//! the glass every panel is made of.
+
+mod glass;
+
+pub use glass::{Glass, selection_theme};
 
 use crownconfig::ThemeOverrides;
 use crownui::{
     ext::{Brush, GradientStop},
-    kit::{self, Theme},
+    kit::Theme,
     prelude::{Color, CornerShape, Point},
 };
 
 /// Opacity of a popup panel before the user's transparency setting is taken
 /// off it. The bar's panels sit on the compositor's blur, and letting some of
 /// it through is most of what makes them look like part of the desktop.
-const PANEL_OPACITY: f32 = 0.66;
+const PANEL_OPACITY: f32 = 0.58;
 /// Never let the transparency setting take a panel below this — past it the
 /// text stops being readable over a bright wallpaper.
-const MIN_PANEL_OPACITY: f32 = 0.55;
+const MIN_PANEL_OPACITY: f32 = 0.5;
 
 /// The bar's own foreground, idle then under the pointer, per mode. A panel's
 /// text sits on the panel's own body, but the bar's sits over the wallpaper,
@@ -126,9 +130,9 @@ const WEATHER_LIGHT: WeatherColors = WeatherColors {
 /// Every color the bar paints itself, resolved from one theme.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
-    /// The bar's ground at its densest, along the screen edge. The same body
-    /// color and transparency as the panels, so the bar and the panels it
-    /// opens are one surface in two places.
+    /// The bar's ground at its densest, along the screen edge. The panels'
+    /// glass body, so the bar and the panels it opens are one surface in two
+    /// places.
     pub bar_fill: Color,
     /// Pill fill under the pointer, and while the widget's panel is open.
     pub pill_hover: Color,
@@ -138,9 +142,9 @@ pub struct Palette {
     pub bar_fg_hover: Color,
     /// Third-level foreground — the trailing glyphs of a panel row.
     pub fg_dim: Color,
-    /// Popup panel body and rim.
-    pub panel_bg: Color,
-    pub panel_rim: Color,
+    /// What the popup panels are made of, and the theme their rows are drawn in.
+    pub glass: Glass,
+    pub panel_theme: Theme,
     /// Degraded but working: an open network, a battery held back to save power.
     pub warning: Color,
     /// Healthy: a charging battery.
@@ -154,8 +158,7 @@ impl Palette {
     /// The palette for `theme`, with the user's `transparency` (0..1) taken off
     /// the panels and the bar tokens of `overrides` applied.
     pub fn new(theme: &Theme, transparency: f32, overrides: &ThemeOverrides) -> Self {
-        let opacity = panel_opacity(transparency);
-        let panel_bg = kit::panel_fill(theme, opacity);
+        let glass = Glass::new(theme, panel_opacity(transparency));
         let dark = theme.mode.is_dark();
         let (bar_fg, bar_fg_hover) = if dark {
             (BAR_FG_DARK, BAR_FG_HOVER_DARK)
@@ -168,14 +171,14 @@ impl Palette {
                 .map_or(fallback, |[r, g, b, a]| Color::new(r, g, b, a))
         };
         Self {
-            bar_fill: panel_bg,
+            bar_fill: glass.body,
             pill_hover: theme.surface.hover,
             pill_active: scale_alpha(theme.surface.hover, PILL_ACTIVE_BOOST),
             bar_fg: token("bar.fg", bar_fg),
             bar_fg_hover: token("bar.fg_hover", bar_fg_hover),
-            fg_dim: theme.popover.muted_text,
-            panel_bg,
-            panel_rim: kit::panel_rim(theme, opacity),
+            fg_dim: glass.ink_muted,
+            glass,
+            panel_theme: glass.rows_theme(theme),
             warning: theme.status.warning,
             success: theme.status.success,
             danger: theme.status.danger,
@@ -197,7 +200,7 @@ const fn rgb(hex: u32) -> Color {
 }
 
 /// `color` with its alpha replaced.
-pub fn with_alpha(color: Color, alpha: f32) -> Color {
+pub const fn with_alpha(color: Color, alpha: f32) -> Color {
     Color {
         a: alpha.clamp(0.0, 1.0),
         ..color
