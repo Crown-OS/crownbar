@@ -12,10 +12,11 @@ use crate::{
     services::{
         Services,
         link::{self, SettingsPane},
+        live::{LiveCommand, StopwatchRequest, TimerRequest},
     },
     widgets::{
-        AfterAction, BarWidget, PopupAction, PopupSpec,
-        popup::{PanelBuilder, Row},
+        AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
+        popup::{Item, PanelBuilder, Row},
     },
 };
 
@@ -26,8 +27,13 @@ pub struct ClockWidget {
 
 #[derive(Clone, Copy)]
 enum Target {
+    Stopwatch,
+    Timer(u32),
     Settings,
 }
+
+/// The countdowns the panel offers in one click, in minutes.
+const TIMER_PRESETS: [u32; 3] = [5, 15, 25];
 
 impl ClockWidget {
     pub fn new() -> Self {
@@ -82,6 +88,21 @@ impl BarWidget for ClockWidget {
         )));
         panel.row(Row::Separator);
         panel.action(
+            Item::new("Start Stopwatch")
+                .icon(Icon::Rune(Rune::Stopwatch))
+                .row(),
+            Target::Stopwatch,
+        );
+        for minutes in TIMER_PRESETS {
+            panel.action(
+                Item::new(format!("Timer for {minutes} Minutes"))
+                    .icon(Icon::Rune(Rune::Clock))
+                    .row(),
+                Target::Timer(minutes),
+            );
+        }
+        panel.row(Row::Separator);
+        panel.action(
             Row::Action {
                 label: "Date & Time Settings…".into(),
             },
@@ -93,15 +114,24 @@ impl BarWidget for ClockWidget {
         Some(spec)
     }
 
-    fn on_popup(&mut self, action: PopupAction, _services: &Services) -> AfterAction {
+    fn on_popup(&mut self, action: PopupAction, services: &Services) -> AfterAction {
         let PopupAction::Activate { row } = action else {
             return AfterAction::Stay;
         };
-        if let Some(Target::Settings) = self.targets.get(row).copied().flatten() {
-            link::open(SettingsPane::DateTime);
-            return AfterAction::Close;
+        match self.targets.get(row).copied().flatten() {
+            Some(Target::Stopwatch) => services
+                .live
+                .send(LiveCommand::Stopwatch(StopwatchRequest::Start)),
+            Some(Target::Timer(minutes)) => {
+                services.live.send(LiveCommand::Timer(TimerRequest::Start {
+                    seconds: minutes * 60,
+                    label: None,
+                }))
+            }
+            Some(Target::Settings) => link::open(SettingsPane::DateTime),
+            None => return AfterAction::Stay,
         }
-        AfterAction::Stay
+        AfterAction::Close
     }
 
     /// The panel restates itself every second so the readout is the time and

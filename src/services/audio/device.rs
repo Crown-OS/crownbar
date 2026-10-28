@@ -87,7 +87,7 @@ impl DeviceKind {
             _ if name.contains("headset") => Self::Headset,
             _ if name.contains("bluez") => Self::Bluetooth,
             _ => match role {
-                Role::Input | Role::RecordStream => Self::Microphone,
+                Role::Input | Role::RecordStream | Role::Camera => Self::Microphone,
                 Role::Output | Role::PlaybackStream => Self::Speakers,
             },
         }
@@ -225,6 +225,8 @@ impl Stream {
 }
 
 const PLACEHOLDER_SINK: &str = "auto_null";
+/// What a camera's node is named by the two backends that drive one.
+const CAMERA_NODES: [&str; 2] = ["v4l2_input", "libcamera_input"];
 
 /// Which side of the server a node sits on, from `media.class`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -233,6 +235,8 @@ pub enum Role {
     Input,
     PlaybackStream,
     RecordStream,
+    /// A camera, which is in use while its node is running.
+    Camera,
 }
 
 impl Role {
@@ -253,6 +257,10 @@ impl Role {
                 .then_some(Self::Input),
             "Stream/Output/Audio" => Some(Self::PlaybackStream),
             "Stream/Input/Audio" => Some(Self::RecordStream),
+            "Video/Source" => props
+                .get("node.name")
+                .is_some_and(|name| CAMERA_NODES.iter().any(|prefix| name.starts_with(prefix)))
+                .then_some(Self::Camera),
             _ => None,
         }
     }
@@ -278,6 +286,13 @@ mod tests {
     fn real_sinks_are_outputs() {
         let sink = props("Audio/Sink", "alsa_output.pci-0000_06_00.6.analog-stereo");
         assert_eq!(Role::classify(&sink), Some(Role::Output));
+    }
+
+    #[test]
+    fn cameras_are_told_from_screen_casts() {
+        let camera = props("Video/Source", "v4l2_input.pci-0000_00_14.0-usb-0_1_1.0");
+        assert_eq!(Role::classify(&camera), Some(Role::Camera));
+        assert_eq!(Role::classify(&props("Video/Source", "xdpw_cast")), None);
     }
 
     #[test]

@@ -7,8 +7,8 @@
 use tokio::runtime::Runtime;
 
 use crate::services::{
-    Wake, audio, battery, bluetooth, brightness, bus, caffeine, network, nightlight, notifications,
-    plugins, power, runtime, screencast, stats, weather,
+    Wake, audio, battery, bluetooth, brightness, bus, caffeine, live, network, nightlight,
+    notifications, plugins, power, runtime, screencast, stats, weather,
 };
 
 pub struct Services {
@@ -17,6 +17,7 @@ pub struct Services {
     pub brightness: brightness::Channel,
     pub caffeine: caffeine::Channel,
     pub bluetooth: bluetooth::Channel,
+    pub live: live::Channel,
     pub network: network::Channel,
     pub nightlight: nightlight::Channel,
     pub notifications: notifications::Channel,
@@ -77,12 +78,21 @@ impl Services {
         let (weather_backend, weather) = bus::connect(weather::WeatherState::default(), &wake);
         rt.spawn(weather::run(weather_backend));
 
+        let (live_backend, live) = bus::connect(live::LiveState::default(), &wake);
+        let bridges = live::Bridges {
+            audio: audio.tap(),
+            screencast: screencast.tap(),
+            caffeine: caffeine.tap(),
+        };
+        rt.spawn(live::run(live_backend, bridges));
+
         Ok(Self {
             audio,
             battery,
             brightness,
             caffeine,
             bluetooth,
+            live,
             network,
             nightlight,
             notifications,

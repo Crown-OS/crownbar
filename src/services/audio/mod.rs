@@ -29,6 +29,8 @@ pub struct AudioState {
     pub playback: Vec<Stream>,
     /// Applications currently holding the microphone.
     pub recording: Vec<Stream>,
+    /// Cameras PipeWire drives; `active` while one is streaming.
+    pub cameras: Vec<Stream>,
     /// `node.name` of the session default, as the server resolved it.
     default_output: Option<String>,
     default_input: Option<String>,
@@ -168,6 +170,7 @@ impl AudioState {
         self.playback
             .iter_mut()
             .chain(self.recording.iter_mut())
+            .chain(self.cameras.iter_mut())
             .find(|s| s.id == id)
             .map(|stream| {
                 let mut changed = properties
@@ -181,14 +184,21 @@ impl AudioState {
     }
 
     pub(crate) fn remove(&mut self, id: NodeId) -> bool {
-        let before =
-            self.outputs.len() + self.inputs.len() + self.playback.len() + self.recording.len();
+        let before = self.node_count();
         self.outputs.retain(|d| d.id != id);
         self.inputs.retain(|d| d.id != id);
         self.playback.retain(|s| s.id != id);
         self.recording.retain(|s| s.id != id);
-        before
-            != self.outputs.len() + self.inputs.len() + self.playback.len() + self.recording.len()
+        self.cameras.retain(|s| s.id != id);
+        before != self.node_count()
+    }
+
+    fn node_count(&self) -> usize {
+        self.outputs.len()
+            + self.inputs.len()
+            + self.playback.len()
+            + self.recording.len()
+            + self.cameras.len()
     }
 
     pub(crate) fn unavailable(reason: impl Into<Arc<str>>) -> Self {

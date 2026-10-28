@@ -86,11 +86,26 @@ impl<S, C> Channel<S, C> {
         let _ = self.commands.send(command);
     }
 
+    /// Both halves of the channel for another backend to follow: a watch on
+    /// the snapshots and a pipe for commands.
+    pub fn tap(&self) -> Tap<S, C> {
+        Tap {
+            state: self.state.clone(),
+            commands: self.commands.clone(),
+        }
+    }
+
     /// A pipe of its own into the backend, for a sender that outlives any
     /// borrow of the services — a plugin view's event sink.
     pub fn sender(&self) -> mpsc::UnboundedSender<C> {
         self.commands.clone()
     }
+}
+
+/// A service as another backend sees it.
+pub struct Tap<S, C> {
+    pub state: watch::Receiver<Arc<S>>,
+    pub commands: mpsc::UnboundedSender<C>,
 }
 
 /// Wire up one service.

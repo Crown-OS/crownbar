@@ -11,12 +11,15 @@ use config::BarSettings;
 use crate::widgets::{
     BarWidget, WidgetRegistry, WidgetSlot, battery::BatteryWidget, bluetooth::BluetoothWidget,
     brightness::BrightnessWidget, caffeine::CaffeineWidget, clock::ClockWidget,
-    layout::LayoutWidget, notifications::NotificationsWidget, remote::RemoteWidget,
+    layout::LayoutWidget, live::LiveChip, notifications::NotificationsWidget, remote::RemoteWidget,
     screencast::ScreencastWidget, volume::VolumeWidget, weather::WeatherWidget, wifi::WifiWidget,
 };
 
 /// The indicator every bar shows while something is being shared.
 const ALWAYS: &str = "screencast";
+/// The entry that stands for every live activity chip. While it is on the bar
+/// its chips carry the screen-sharing indicator too.
+const LIVE: &str = "live";
 
 /// The entries of each slot, left-to-right.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -80,12 +83,21 @@ impl WidgetRegistry {
     pub fn arranged(arrangement: &Arrangement) -> Self {
         let mut registry = Self::new();
         for (slot, entry) in arrangement.entries() {
+            if entry == LIVE {
+                for chip in LiveChip::all() {
+                    registry.register(Box::new(chip), slot);
+                }
+                continue;
+            }
             match widget(entry) {
                 Some(widget) => registry.register(widget, slot),
                 None => log::warn!("bar.ron names `{entry}`, which is no widget"),
             }
         }
-        if !arrangement.entries().any(|(_, entry)| entry == ALWAYS) {
+        if !arrangement
+            .entries()
+            .any(|(_, entry)| entry == ALWAYS || entry == LIVE)
+        {
             registry.register(Box::new(ScreencastWidget::new()), WidgetSlot::Right);
         }
         registry
@@ -95,6 +107,7 @@ impl WidgetRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::live::MAX_CHIPS;
 
     fn layout(registry: &WidgetRegistry) -> Vec<(WidgetSlot, String)> {
         registry
@@ -107,8 +120,14 @@ mod tests {
     fn the_default_settings_are_the_stock_bar() {
         let registry = WidgetRegistry::arranged(&Arrangement::from(&BarSettings::default()));
         let placed = layout(&registry);
+        let left = 1 + MAX_CHIPS;
         assert_eq!(placed[0], (WidgetSlot::Left, "clock".to_owned()));
-        let right: Vec<_> = placed[1..]
+        assert!(
+            placed[1..left]
+                .iter()
+                .all(|(slot, id)| *slot == WidgetSlot::Left && id.starts_with("live-"))
+        );
+        let right: Vec<_> = placed[left..]
             .iter()
             .map(|(slot, id)| {
                 assert_eq!(*slot, WidgetSlot::Right);
@@ -126,8 +145,7 @@ mod tests {
                 "bluetooth",
                 "wifi",
                 "battery",
-                "notifications",
-                "screencast"
+                "notifications"
             ]
         );
     }
@@ -164,6 +182,7 @@ mod tests {
             .left
             .iter()
             .chain(&BarSettings::default().right)
+            .filter(|name| *name != LIVE)
         {
             let widget = builtin(name).map(|widget| widget.id().to_owned());
             assert_eq!(widget.as_deref(), Some(name.as_str()));

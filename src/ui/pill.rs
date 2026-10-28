@@ -18,7 +18,7 @@ use kurbo::Point;
 
 use crate::{
     animation::SpringProfile,
-    theme::{self, FONT_SIZE, FONT_WEIGHT, PILL_PAD_X},
+    theme::{FONT_SIZE, FONT_WEIGHT, PILL_PAD_X, PillState},
     ui::{frames::animate, icons, popup, remote, scene::Scene, state::Bar},
     widgets::{Icon, bit},
 };
@@ -75,15 +75,19 @@ impl Kind for PillKind {
         ] {
             cx.add_listener(node, listener);
         }
+        let accent = cx.memo(move |runtime| bar.read(runtime, index, |widget| widget.accent()));
         cx.bind_style(node, move |runtime| {
-            let palette = bar.palette.get(runtime);
-            let fill = if active.get(runtime) {
-                palette.pill_active
+            let state = if active.get(runtime) {
+                PillState::Active
             } else if hovered.get(runtime) {
-                palette.pill_hover
+                PillState::Hovered
             } else {
-                theme::with_alpha(palette.pill_hover, 0.0)
+                PillState::Rest
             };
+            let fill = bar
+                .palette
+                .get(runtime)
+                .pill_fill(state, accent.get(runtime));
             crownui::ext::StyleProp::Background(Some(fill))
         });
 

@@ -13,6 +13,7 @@ mod glass;
 
 pub use glass::{Glass, selection_theme};
 
+use crownbar_live::wire::Accent;
 use crownconfig::ThemeOverrides;
 use crownui::{
     ext::{Brush, GradientStop},
@@ -37,6 +38,18 @@ const BAR_FG_DARK: Color = rgb(0xDD_DD_DD);
 const BAR_FG_HOVER_DARK: Color = rgb(0xAA_AA_AA);
 const BAR_FG_LIGHT: Color = rgb(0x11_11_11);
 const BAR_FG_HOVER_LIGHT: Color = rgb(0x33_33_33);
+
+/// The hues a live activity's chip can be tinted with.
+const CORAL: Color = rgb(0xD9_77_57);
+const BLUE: Color = rgb(0x3B_82_F6);
+const GREEN: Color = rgb(0x22_C5_5E);
+const AMBER: Color = rgb(0xF5_9E_0B);
+const VIOLET: Color = rgb(0x8B_5C_F6);
+/// How strongly a chip's accent shows through at rest, under the pointer, and
+/// while its panel is open.
+const ACCENT_REST: f32 = 0.32;
+const ACCENT_HOVER: f32 = 0.44;
+const ACCENT_ACTIVE: f32 = 0.56;
 
 /// How much stronger the pill under an open panel is than a hovered one.
 const PILL_ACTIVE_BOOST: f32 = 2.2;
@@ -188,6 +201,46 @@ impl Palette {
                 WEATHER_LIGHT
             },
         }
+    }
+}
+
+/// What state a pill is in, for the fill drawn under it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PillState {
+    Rest,
+    Hovered,
+    Active,
+}
+
+impl Palette {
+    /// `accent` as a solid color.
+    pub fn accent(&self, accent: Accent) -> Color {
+        match accent {
+            Accent::Neutral => self.bar_fg,
+            Accent::Coral => CORAL,
+            Accent::Blue => BLUE,
+            Accent::Green => GREEN,
+            Accent::Amber => AMBER,
+            Accent::Red => self.danger,
+            Accent::Violet => VIOLET,
+        }
+    }
+
+    /// The fill under a pill in `state`, tinted by `accent` if it has one.
+    pub fn pill_fill(&self, state: PillState, accent: Option<Accent>) -> Color {
+        let Some(accent) = accent.filter(|accent| *accent != Accent::Neutral) else {
+            return match state {
+                PillState::Rest => with_alpha(self.pill_hover, 0.0),
+                PillState::Hovered => self.pill_hover,
+                PillState::Active => self.pill_active,
+            };
+        };
+        let strength = match state {
+            PillState::Rest => ACCENT_REST,
+            PillState::Hovered => ACCENT_HOVER,
+            PillState::Active => ACCENT_ACTIVE,
+        };
+        with_alpha(self.accent(accent), strength)
     }
 }
 

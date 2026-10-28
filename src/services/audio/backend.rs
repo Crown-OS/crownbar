@@ -149,6 +149,7 @@ fn watch(registry: &Registry, tracked: &Bound, publish: &Arc<Publisher<AudioStat
                             Role::Input => state.inputs.push(Device::from_props(id, &properties, role)),
                             Role::PlaybackStream => state.playback.push(Stream::from_props(id, &properties)),
                             Role::RecordStream => state.recording.push(Stream::from_props(id, &properties)),
+                            Role::Camera => state.cameras.push(Stream::from_props(id, &properties)),
                         }
                         state.resolve();
                         true

@@ -12,6 +12,7 @@ mod brightness;
 mod caffeine;
 mod glyph;
 mod layout;
+mod live;
 mod notifications;
 mod numerals;
 mod rune;
@@ -98,6 +99,22 @@ pub fn draw_in(scene: &mut Scene<'_>, icon: Icon, bounds: Rect, fg: Color, p: &P
             night,
         } => weather::draw(scene, bounds, from, to, blend, night, &p.weather),
         Icon::ScreenShare { pulse } => screenshare::draw(scene, bounds, fg, p.danger, pulse),
+        Icon::Live {
+            glyph,
+            accent,
+            progress,
+            pulse,
+        } => live::draw(
+            scene,
+            bounds,
+            live::Look {
+                glyph,
+                progress,
+                pulse,
+                fg,
+                accent: p.accent(accent),
+            },
+        ),
         Icon::Rune(r) => rune::draw(scene, bounds, fg, r),
     }
 }
