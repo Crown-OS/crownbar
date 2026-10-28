@@ -248,8 +248,12 @@ fn the_radios_agree_with_the_kernel() {
     );
     assert_eq!(
         kernel.present(),
-        bluetooth.radio != RadioState::Unknown || !bluetooth.availability.usable(),
+        bluetooth.radio != RadioState::Unknown,
         "the service and rfkill disagree about whether a bluetooth radio exists"
+    );
+    assert!(
+        kernel.present() || !bluetooth.availability.usable(),
+        "there is no bluetooth radio, yet the service offers itself as usable"
     );
     if kernel == rfkill::Block::Hard {
         assert_eq!(
