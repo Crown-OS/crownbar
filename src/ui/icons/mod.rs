@@ -12,8 +12,11 @@ mod brightness;
 mod caffeine;
 mod glyph;
 mod layout;
+mod live;
 mod notifications;
+mod numerals;
 mod rune;
+mod screenshare;
 mod volume;
 mod weather;
 mod wifi;
@@ -24,14 +27,10 @@ use kurbo::Rect;
 
 use crate::{theme::Palette, widgets::Icon};
 
-pub use battery::{ReadoutPlan, readout as battery_readout};
-
 pub const ICON_BOX: f32 = 22.0;
-/// Weight of the battery's reading, which the pill shapes as text.
-pub const READOUT_WEIGHT: u16 = battery::DIGITS_WEIGHT;
 
-/// The bar's battery cell from `origin`, its left edge and vertical centre,
-/// without the reading the pill lays over it.
+/// The bar's battery cell, reading included, from `origin`, its left edge and
+/// vertical centre.
 pub fn draw_battery(
     scene: &mut Scene<'_>,
     origin: kurbo::Point,
@@ -99,6 +98,23 @@ pub fn draw_in(scene: &mut Scene<'_>, icon: Icon, bounds: Rect, fg: Color, p: &P
             blend,
             night,
         } => weather::draw(scene, bounds, from, to, blend, night, &p.weather),
+        Icon::ScreenShare { pulse } => screenshare::draw(scene, bounds, fg, p.danger, pulse),
+        Icon::Live {
+            glyph,
+            accent,
+            progress,
+            pulse,
+        } => live::draw(
+            scene,
+            bounds,
+            live::Look {
+                glyph,
+                progress,
+                pulse,
+                fg,
+                accent: p.accent(accent),
+            },
+        ),
         Icon::Rune(r) => rune::draw(scene, bounds, fg, r),
     }
 }

@@ -128,14 +128,7 @@ impl BarWidget for BatteryWidget {
             title: "Battery".into(),
             toggle: None,
         });
-        panel.row(
-            Item::new(format!("{}%", charge.percent()))
-                .plain()
-                .icon(self.icon())
-                .detail(charge.summary())
-                .enabled(false)
-                .row(),
-        );
+        panel.row(Item::new(charge.summary()).plain().enabled(false).row());
 
         let profiles = &self.power.profiles;
         if !profiles.supported.is_empty() {
@@ -216,8 +209,8 @@ impl BarWidget for BatteryWidget {
 
 fn rune_for(profile: Profile) -> Rune {
     match profile {
-        Profile::Saver => Rune::Leaf,
-        Profile::Balanced => Rune::Gauge,
-        Profile::Performance => Rune::Bolt,
+        Profile::Saver => Rune::GaugeLow,
+        Profile::Balanced => Rune::GaugeMid,
+        Profile::Performance => Rune::GaugeHigh,
     }
 }

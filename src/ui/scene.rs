@@ -7,7 +7,7 @@
 
 use crownui::{
     ext::{Brush, DrawCommand, DrawList, Paint, Path, Stroke, StrokeCap, StrokeJoin, Transform},
-    prelude::{Color, Point},
+    prelude::{Color, CornerRadii, Point, Rect},
 };
 use kurbo::{Affine, PathEl, Shape};
 
@@ -30,6 +30,12 @@ pub trait IntoPaint {
 impl IntoPaint for Color {
     fn into_paint(self) -> Paint {
         Paint::solid(self)
+    }
+}
+
+impl IntoPaint for Paint {
+    fn into_paint(self) -> Paint {
+        self
     }
 }
 
@@ -73,6 +79,22 @@ impl<'a> Scene<'a> {
     ) {
         let command = DrawCommand::StrokePath(path_of(shape), line(stroke), paint.into_paint());
         self.draw(transform, command);
+    }
+
+    /// Whatever `draw` paints, kept inside `clip`.
+    pub fn clipped(&mut self, clip: kurbo::Rect, draw: impl FnOnce(&mut Self)) {
+        self.list.save();
+        self.list.clip(
+            Rect::from_xywh(
+                clip.x0 as f32,
+                clip.y0 as f32,
+                clip.width() as f32,
+                clip.height() as f32,
+            ),
+            CornerRadii::ZERO,
+        );
+        draw(self);
+        self.list.restore();
     }
 
     fn draw(&mut self, transform: Affine, command: DrawCommand) {

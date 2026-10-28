@@ -13,28 +13,30 @@ use config::BarPosition;
 use crownui::{
     kit::INTER_FAMILY,
     prelude::{
-        Listeners, Material, MaterialBlur, Runtime, Styled, TRANSPARENT, View, bind, component,
-        for_each, keyed, show, vstack, zstack,
+        Listeners, Material, MaterialBlur, Runtime, Styled, TRANSPARENT, Vector, View, bind,
+        component, for_each, keyed, show, vstack, zstack,
     },
 };
 
-use super::{PANEL_WIDTH, close, host_offset, rows};
+use super::{PANEL_RADIUS, PANEL_WIDTH, close, host_offset, rows, sheen::sheen};
 use crate::{
     animation::SpringProfile,
     theme,
     ui::{pill::nothing, state::Bar},
+    util::theme::provide_derived_theme,
 };
 
-/// Concentric with the row highlights.
-const RADIUS: f32 = crownui::kit::PANEL_RADIUS;
-/// Backdrop blur asked of the compositor, in logical px.
-const BLUR_RADIUS: f32 = 32.0;
+/// Backdrop blur asked of the compositor, in logical px: deep enough that
+/// what is behind the panel is only its colors.
+const BLUR_RADIUS: f32 = 56.0;
 /// Chroma multiplier on the blurred backdrop: above 1 is the vibrancy that
-/// makes a wallpaper's color show through frosted glass rather than grey out.
-const BLUR_VIBRANCY: f32 = 1.25;
-/// Width of the compositor's refractive rim just inside the panel's edge.
-const RIM: f32 = 1.0;
-const ROWS_PAD_Y: f32 = 8.0;
+/// makes a wallpaper's color glow through the smoked glass rather than grey out.
+const BLUR_VIBRANCY: f32 = 1.8;
+/// Width of the refractive rim just inside the panel's edge, and of the
+/// specular line drawn over it.
+const RIM: f32 = 1.5;
+/// How far rows slide when the panel moves to another pill, in logical px.
+const SLIDE: f32 = PANEL_WIDTH / 3.0;
 
 /// The area beside the bar, starting where the bar's reserved space ends so a
 /// panel thrown out of its pill disappears under the bar's edge rather than
@@ -74,24 +76,28 @@ fn body(bar: Bar) -> impl View {
     component(move |cx| {
         let capabilities = cx.platform_capabilities();
         let blurred = cx.memo(move |runtime| capabilities.get(runtime).materials);
-        let visible = move |runtime: &mut Runtime| frame.with(runtime, |frame| frame.visible());
-        zstack(rows_layer(bar))
+        // Whole px: the compositor cuts the blur from the body's shape in
+        // whole px, and a body between them would leave a sliver of either
+        // along its far edges while it moves.
+        let visible =
+            move |runtime: &mut Runtime| frame.with(runtime, |frame| frame.visible().round());
+        provide_derived_theme(cx, move |runtime| bar.palette.get(runtime).panel_theme);
+        zstack((sheen(bar, RIM), rows_layer(bar)))
             .absolute()
             .left(bind(move |runtime| visible(runtime).x0 as f32))
             .top(bind(move |runtime| visible(runtime).y0 as f32))
             .w(bind(move |runtime| visible(runtime).width() as f32))
             .h(bind(move |runtime| visible(runtime).height() as f32))
-            .rounded(RADIUS)
+            .rounded(PANEL_RADIUS)
             .overflow_hidden()
             .bg(bind(move |runtime| {
-                let panel = bar.palette.get(runtime).panel_bg;
+                let body = bar.palette.get(runtime).glass.body;
                 if blurred.get(runtime) {
-                    panel
+                    body
                 } else {
-                    theme::opaque(panel)
+                    theme::opaque(body)
                 }
             }))
-            .ring(RIM, bind(move |runtime| bar.palette.get(runtime).panel_rim))
             .opacity(bind(move |runtime| {
                 frame.with(runtime, |frame| frame.alpha)
             }))
@@ -108,13 +114,15 @@ fn body(bar: Bar) -> impl View {
 }
 
 /// The shown panel's rows, stretched from the body's corner onto the shape as
-/// it lands. A change of panel mounts the next rows while the last ones fade
-/// out where they were.
+/// it lands. A change of panel slides the next rows in from the side the
+/// panel is travelling toward while the last ones slide out the other way.
 fn rows_layer(bar: Bar) -> impl View {
-    let frame = bar.popup.frame;
+    let popup = bar.popup;
+    let frame = popup.frame;
     keyed(
-        move |runtime| bar.popup.shown.get(runtime),
+        move |runtime| popup.shown.get(runtime),
         move |cx, shown| {
+            let arrival = Vector::new(popup.slide.with_untracked(cx, |slide| *slide) * SLIDE, 0.0);
             let rows = cx.signal(Vec::new());
             let declared = cx.signal((0.0, false));
             bar.popup.measured.set(cx, 0.0);
@@ -141,16 +149,16 @@ fn rows_layer(bar: Bar) -> impl View {
                     bar.popup.height.set(runtime, height);
                 });
             }
-            vstack(for_each(
-                rows,
-                |row| row.key,
-                move |cx, row| rows::view(cx, bar, row),
-            ))
+            vstack(
+                for_each(rows, |row| row.key, move |cx, row| rows::view(cx, bar, row))
+                    .flex_col()
+                    .gap(rows::ROW_GAP),
+            )
             .absolute()
             .top(0.0)
             .left(0.0)
             .w(PANEL_WIDTH)
-            .py(ROWS_PAD_Y)
+            .py(rows::PAD_Y)
             .font_family(INTER_FAMILY)
             .origin(0.0, 0.0)
             .scale_x(bind(move |runtime| {
@@ -159,7 +167,17 @@ fn rows_layer(bar: Bar) -> impl View {
             .scale_y(bind(move |runtime| {
                 frame.with(runtime, |frame| frame.scale().1 as f32)
             }))
-            .enter(|style| style.opacity(0.0))
+            .translate(bind(move |runtime| {
+                let owner = popup.owner.get(runtime);
+                let leaving = owner.is_some() && owner != shown;
+                let offset = if leaving {
+                    -popup.slide.get(runtime) * SLIDE
+                } else {
+                    0.0
+                };
+                Vector::new(offset, 0.0)
+            }))
+            .enter(move |style| style.opacity(0.0).translate(arrival))
             .exit(|style| style.opacity(0.0))
             .transition(SpringProfile::SNAPPY.curve())
         },
@@ -172,10 +190,13 @@ fn rows_layer(bar: Bar) -> impl View {
 /// panel — a radius that tracks the fade keeps the wallpaper from going
 /// frosted before there is anything on it — and squaring it lets the blur,
 /// and the rim with it, reach zero while the rows are still just visible.
+///
+/// The blur takes its corners from the body's own shape. A corner radius here
+/// would round the whole layer surface — the bar included — so there is none.
 fn material(alpha: f32) -> Material {
     let strength = alpha.clamp(0.0, 1.0);
     Material {
-        corner_radius: RADIUS,
+        corner_radius: 0.0,
         border_width: RIM,
         blur: Some(MaterialBlur {
             radius: BLUR_RADIUS * strength * strength,

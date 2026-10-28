@@ -4,9 +4,11 @@ pub mod brightness;
 pub mod caffeine;
 pub mod clock;
 pub mod layout;
+pub mod live;
 pub mod notifications;
 pub mod popup;
 pub mod remote;
+pub mod screencast;
 pub mod volume;
 pub mod weather;
 pub mod wifi;
@@ -17,7 +19,10 @@ pub use arrangement::Arrangement;
 pub use popup::{AfterAction, PopupAction, PopupSpec};
 pub use remote::Surface;
 
-use crate::services::Services;
+use crate::services::{
+    Services,
+    live::{Accent, Glyph},
+};
 
 /// The sky, as [`crate::services::weather`] reports it. Re-exported so the
 /// icon layer takes its vocabulary from `widgets` like every other glyph's.
@@ -77,6 +82,19 @@ pub enum Icon {
         blend: f32,
         night: f32,
     },
+    /// A screen with a recording light: shown while something is being
+    /// shared. `pulse` ∈ [0, 1] breathes the light so it is noticed.
+    ScreenShare {
+        pulse: f32,
+    },
+    /// A live activity's mark, ringed by how far along it is. `pulse` ∈ [0, 1]
+    /// is a halo in the chip's accent, raised while it asks for attention.
+    Live {
+        glyph: Glyph,
+        accent: Accent,
+        progress: Option<f32>,
+        pulse: f32,
+    },
     /// A fixed, SVG-authored glyph with no animated state. Panels are full of
     /// these — a headphone, a laptop, a chevron — and they would each need a
     /// variant of their own otherwise.
@@ -100,9 +118,23 @@ pub enum Rune {
     Bluetooth,
     Warning,
     /// The three power profiles, in the order the panel lists them.
-    Leaf,
-    Gauge,
-    Bolt,
+    GaugeLow,
+    GaugeMid,
+    GaugeHigh,
+    /// What a screen cast can show: a window, or a workspace.
+    Window,
+    Workspace,
+    /// What a live activity is about.
+    Sparkles,
+    Stopwatch,
+    Clock,
+    MusicalNote,
+    CommandLine,
+    ArrowDownTray,
+    CheckCircle,
+    XCircle,
+    HandRaised,
+    VideoCamera,
 }
 
 /// Battery visual state. Everything but the readout is spring-smoothed, so a
@@ -176,6 +208,12 @@ pub trait BarWidget {
     /// Icon glyph to draw inside the pill.
     fn icon(&self) -> Icon {
         Icon::None
+    }
+
+    /// The hue the pill is tinted with at rest, for a widget that stands out
+    /// from the bar: a live activity.
+    fn accent(&self) -> Option<Accent> {
+        None
     }
 
     /// A plugin's surface, drawn from the trees crownplugind sent rather than

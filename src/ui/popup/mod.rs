@@ -9,6 +9,7 @@
 mod host;
 pub mod motion;
 mod rows;
+mod sheen;
 
 pub use host::panel_host;
 
@@ -23,7 +24,9 @@ use crate::{
 use motion::{Opening, PanelMotion};
 
 /// Every panel is this wide, whatever rows it holds.
-pub const PANEL_WIDTH: f32 = crownui::kit::PANEL_WIDTH;
+pub const PANEL_WIDTH: f32 = 340.0;
+/// Concentric with the fully rounded row highlights inset inside it.
+pub const PANEL_RADIUS: f32 = rows::ROW_INSET + rows::ITEM_HEIGHT / 2.0;
 /// Smallest distance the panel keeps from the screen's left/right edges.
 const SCREEN_MARGIN: f64 = 8.0;
 
@@ -52,18 +55,22 @@ fn open(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
             widget.popup_opened(&state.services);
         }
     });
-    popup.owner.set(cx, Some(idx));
-    popup.anchor_x.set(cx, anchor_x);
     let shown = popup.shown.with_untracked(cx, |shown| *shown);
     let present = popup.present.with_untracked(cx, |present| *present);
     // One panel handing over to another, rather than one being thrown out of
-    // its pill: the shape travels and the rows cross-fade.
+    // its pill: the shape travels and the rows slide across inside it.
     let replacing = previous.is_some() && present;
+    let from_x = popup.anchor_x.with_untracked(cx, |anchor| *anchor);
+    let slide = if replacing {
+        (anchor_x - from_x).signum()
+    } else {
+        0.0
+    };
+    popup.slide.set(cx, slide);
+    popup.owner.set(cx, Some(idx));
+    popup.anchor_x.set(cx, anchor_x);
     if shown != Some(idx) || previous.is_none() {
         popup.motion.update(cx, |motion| motion.open(replacing));
-    }
-    if shown != Some(idx) {
-        popup.shown.set(cx, Some(idx));
     }
     popup.present.set(cx, true);
     animate(cx, bar, 0);
@@ -157,6 +164,12 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
     if !popup.present.with_untracked(cx, |present| *present) {
         return false;
     }
+    // A frame behind `owner`, so the outgoing rows have already been sent the
+    // way they slide out before they are taken away.
+    let owner = popup.owner.with_untracked(cx, |owner| *owner);
+    if owner.is_some() && popup.shown.with_untracked(cx, |shown| *shown != owner) {
+        popup.shown.set(cx, owner);
+    }
     let height = popup.height.with_untracked(cx, |height| f64::from(*height));
     if height <= 0.0 {
         return true;
@@ -180,7 +193,6 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
     });
     popup.frame.set(cx, frame);
 
-    let owner = popup.owner.with_untracked(cx, |owner| *owner);
     if owner.is_none() && gone {
         popup.shown.set(cx, None);
         popup.present.set(cx, false);
@@ -232,7 +244,7 @@ mod tests {
     fn a_panel_hangs_centred_under_its_pill() {
         assert_eq!(
             target_bounds(1000.0, 40.0, 200.0, 2560.0),
-            Rect::new(852.0, 40.0, 1148.0, 240.0)
+            Rect::new(830.0, 40.0, 1170.0, 240.0)
         );
     }
 

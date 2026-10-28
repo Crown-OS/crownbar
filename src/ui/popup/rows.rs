@@ -12,7 +12,7 @@ use crownui::{
     kit::{
         PanelHeaderOptions, PanelItemOptions, PanelSectionOptions, PanelSliderOptions, calendar,
         panel_action, panel_header, panel_item, panel_readout, panel_section, panel_separator,
-        panel_slider,
+        panel_slider, use_theme,
     },
     prelude::{AnyView, Color, Cx, Listeners, Memo, Signal, Styled, View, bind, canvas},
 };
@@ -22,14 +22,24 @@ use crownplugin_proto::Part;
 
 use super::dispatch;
 use crate::{
+    theme::selection_theme,
     ui::{icons, remote, scene::Scene, state::Bar},
+    util::theme::provide_derived_theme,
     widgets::{
         BatteryState, Icon, PopupAction, PopupSpec, Rune,
         popup::{Item, Row},
     },
 };
 
-const PAD_Y: f32 = 8.0;
+/// Space above the first row and below the last, the same as the kit's inset
+/// of a row highlight from the panel's sides.
+pub const PAD_Y: f32 = ROW_INSET;
+pub const ROW_INSET: f32 = 8.0;
+/// Space between rows, so neighbouring highlights never touch.
+pub const ROW_GAP: f32 = 4.0;
+pub const ITEM_HEIGHT: f32 = 40.0;
+const ACTION_HEIGHT: f32 = 32.0;
+const SECTION_HEIGHT: f32 = 28.0;
 const BADGE_GLYPH: f32 = 16.0;
 const PLAIN_GLYPH: f32 = 18.0;
 const BATTERY_CELL: (f32, f32) = (24.0, 12.0);
@@ -59,7 +69,8 @@ pub fn keyed(spec: PopupSpec) -> Vec<PanelRow> {
 /// What the rows add up to, less any that size themselves; the shape springs
 /// toward it.
 pub fn height(spec: &PopupSpec) -> f32 {
-    PAD_Y * 2.0 + spec.rows.iter().map(row_height).sum::<f32>()
+    let gaps = spec.rows.len().saturating_sub(1) as f32 * ROW_GAP;
+    PAD_Y * 2.0 + gaps + spec.rows.iter().map(row_height).sum::<f32>()
 }
 
 /// Whether some row's height is only known once it is laid out.
@@ -70,10 +81,10 @@ pub fn sizes_itself(spec: &PopupSpec) -> bool {
 fn row_height(row: &Row) -> f32 {
     match row {
         Row::Header { .. } => 36.0,
-        Row::Slider { .. } | Row::Item(_) => 40.0,
-        Row::Section { .. } => 28.0,
+        Row::Slider { .. } | Row::Item(_) => ITEM_HEIGHT,
+        Row::Section { .. } => SECTION_HEIGHT,
         Row::Separator => 16.0,
-        Row::Action { .. } => 32.0,
+        Row::Action { .. } => ACTION_HEIGHT,
         Row::Readout { .. } => 64.0,
         Row::Calendar(_) => 252.0,
         Row::Remote(_) => 0.0,
@@ -125,6 +136,7 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
             if chevron {
                 section
                     .disclosure()
+                    .rounded(SECTION_HEIGHT / 2.0)
                     .on_click(move |cx, _| activate(cx, bar, row))
                     .boxed()
             } else {
@@ -132,6 +144,7 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
             }
         }
         Row::Action { label } => panel_action(label)
+            .rounded(ACTION_HEIGHT / 2.0)
             .on_click(move |cx, _| activate(cx, bar, row))
             .boxed(),
         Row::Readout { .. } => panel_readout(
@@ -148,7 +161,7 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
             });
             calendar(shown).boxed()
         }
-        Row::Item(item) => item_view(bar, row, *item),
+        Row::Item(item) => item_view(cx, bar, row, *item),
         Row::Remote(surface) => remote::panel(cx, bar, &surface),
     }
 }
@@ -234,13 +247,17 @@ fn slider(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, value: f32) -> AnyView {
         .boxed()
 }
 
-fn item_view(bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {
-    let mut view = panel_item(item.label.clone()).selected(bind(move |runtime| {
-        row.with(
-            runtime,
-            |row| matches!(&row.row, Row::Item(item) if item.selected),
-        )
-    }));
+fn item_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {
+    let rows_theme = use_theme(cx);
+    provide_derived_theme(cx, move |runtime| rows_theme.with(runtime, selection_theme));
+    let mut view = panel_item(item.label.clone())
+        .rounded(ITEM_HEIGHT / 2.0)
+        .selected(bind(move |runtime| {
+            row.with(
+                runtime,
+                |row| matches!(&row.row, Row::Item(item) if item.selected),
+            )
+        }));
     let icon_of = |row: &Row| match row {
         Row::Item(item) => item.icon,
         _ => Icon::None,
@@ -338,7 +355,6 @@ fn warning(bar: Bar) -> AnyView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crownui::kit;
 
     fn spec(rows: Vec<Row>) -> PopupSpec {
         PopupSpec { rows }
@@ -354,8 +370,10 @@ mod tests {
             Row::Separator,
             Item::new("Speakers").row(),
         ];
-        assert_eq!(height(&spec(rows)), 8.0 + 36.0 + 16.0 + 40.0 + 8.0);
-        assert_eq!(kit::PANEL_WIDTH, 296.0);
+        assert_eq!(
+            height(&spec(rows)),
+            8.0 + 36.0 + 4.0 + 16.0 + 4.0 + 40.0 + 8.0
+        );
     }
 
     fn plugin_panel(session: u64, rev: u32) -> Row {

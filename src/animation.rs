@@ -46,18 +46,6 @@ impl SpringProfile {
         stiffness: 320.0,
         damping: 35.78,
     };
-    /// Ratio 0.9 over a longer travel — a shape changing size arrives with the
-    /// barest settle rather than stopping dead at its new dimensions.
-    pub const GLIDE: Self = Self {
-        stiffness: 260.0,
-        damping: 29.0,
-    };
-    /// Ratio 0.68: one visible overshoot, then still. A light object thrown
-    /// against its stop and caught by it.
-    pub const BOUNCE: Self = Self {
-        stiffness: 300.0,
-        damping: 23.6,
-    };
     /// Ratio 1.1 and stiff: a fall that is over before it can bounce, which is
     /// what a thing being put away does and a thing being taken out does not.
     pub const DROP: Self = Self {

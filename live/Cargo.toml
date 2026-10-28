@@ -1,0 +1,32 @@
+[package]
+name = "crownbar-live"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "crownbar-live"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["dep:anyhow", "dep:clap", "dep:serde_json"]
+
+[dependencies]
+crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc" }
+serde = { version = "1", features = ["derive"] }
+
+anyhow = { version = "1.0.102", optional = true }
+clap = { version = "4.5", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[patch."https://github.com/crown-os/crownos-ipc"]
+crownos-ipc = { path = "../../crownos-ipc" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

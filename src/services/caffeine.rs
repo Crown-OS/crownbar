@@ -15,9 +15,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::time;
-
-use crate::services::{bus::Backend, status::Availability};
+use crate::{
+    services::{bus::Backend, status::Availability},
+    util::deadline::sleep_until,
+};
 
 /// How long "keep awake for a while" lasts, for the panel's preset rows.
 pub const PRESETS: [(&str, Duration); 3] = [
@@ -78,13 +79,6 @@ pub async fn run(backend: Backend<CaffeineState, CaffeineCommand>) {
                 });
             }
         }
-    }
-}
-
-async fn sleep_until(deadline: Option<Instant>) {
-    match deadline {
-        Some(instant) => time::sleep_until(instant.into()).await,
-        None => std::future::pending().await,
     }
 }
 

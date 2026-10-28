@@ -4,7 +4,7 @@
 //! developed in: a slot that was written as a constant, or mapped to a kit
 //! slot that happens not to move, and so stays put when the desktop flips.
 
-use crownbar::theme::Palette;
+use crownbar::theme::{Palette, selection_theme};
 use crownconfig::{AccentColor, ThemeOverrides};
 use crownui::{
     kit::{Theme, ThemeMode},
@@ -34,8 +34,8 @@ fn surface_and_text_slots_follow_the_mode() {
         ("bar_fg", |p| p.bar_fg),
         ("bar_fg_hover", |p| p.bar_fg_hover),
         ("fg_dim", |p| p.fg_dim),
-        ("panel_bg", |p| p.panel_bg),
-        ("panel_rim", |p| p.panel_rim),
+        ("glass.body", |p| p.glass.body),
+        ("glass.wash", |p| p.glass.wash),
         ("pill_hover", |p| p.pill_hover),
         ("warning", |p| p.warning),
     ];
@@ -57,7 +57,8 @@ fn the_panel_body_stays_translucent() {
         for transparency in [0.0, 0.5, 1.0] {
             let theme = Theme::for_mode(mode, AccentColor::Purple);
             let alpha = Palette::new(&theme, transparency, &ThemeOverrides::default())
-                .panel_bg
+                .glass
+                .body
                 .a;
             assert!(
                 (0.5..1.0).contains(&alpha),
@@ -71,7 +72,7 @@ fn the_panel_body_stays_translucent() {
 #[test]
 fn the_bar_and_its_panels_share_a_body() {
     let palette = palette_for(ThemeMode::Dark, AccentColor::Purple);
-    assert_eq!(palette.bar_fill, palette.panel_bg);
+    assert_eq!(palette.bar_fill, palette.glass.body);
     assert!(palette.pill_active.a > palette.pill_hover.a);
 }
 
@@ -95,4 +96,46 @@ fn theme_overrides_retint_the_bar_foreground() {
         &overrides,
     );
     assert_eq!(light, light_overridden);
+}
+
+/// The panels' rows light up in the user's accent, not one of the bar's own.
+#[test]
+fn panel_rows_follow_the_accent() {
+    for accent in [AccentColor::Purple, AccentColor::Blue] {
+        let theme = Theme::for_mode(ThemeMode::Dark, accent);
+        let palette = Palette::new(&theme, 0.0, &ThemeOverrides::default());
+        assert_eq!(palette.panel_theme.accent, theme.accent, "{accent:?}");
+        assert_eq!(palette.panel_theme.popover.ring, theme.accent, "{accent:?}");
+    }
+}
+
+/// A panel's slider is the settings app's slider: the accent fill on the kit's
+/// own track and knob.
+#[test]
+fn panel_sliders_match_the_settings_app() {
+    for mode in [ThemeMode::Dark, ThemeMode::Light] {
+        let theme = Theme::for_mode(mode, AccentColor::Blue);
+        let rows = Palette::new(&theme, 0.0, &ThemeOverrides::default()).panel_theme;
+        assert_eq!(rows.control, theme.control, "{mode:?}");
+    }
+}
+
+/// What a panel marks as chosen is a neutral wash and a dark glyph, the same
+/// whatever the accent.
+#[test]
+fn a_chosen_row_is_monochrome() {
+    for mode in [ThemeMode::Dark, ThemeMode::Light] {
+        let [purple, blue] = [AccentColor::Purple, AccentColor::Blue].map(|accent| {
+            let rows = palette_for(mode, accent).panel_theme;
+            (rows.menu.selected_bg, selection_theme(&rows).accent)
+        });
+        assert_eq!(purple, blue, "{mode:?}");
+        let (wash, glyph) = purple;
+        for color in [wash, glyph.start, glyph.end] {
+            assert!(
+                (color.r - color.g).abs() < 0.05 && (color.g - color.b).abs() < 0.05,
+                "{mode:?}: {color:?} is tinted"
+            );
+        }
+    }
 }

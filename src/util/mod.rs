@@ -1,5 +1,10 @@
 pub mod capsule;
 pub mod cmd;
+pub mod deadline;
 pub mod ease;
+pub mod epoch;
 pub mod fd;
+pub mod proc;
 pub mod sysfs;
+pub mod text;
+pub mod theme;

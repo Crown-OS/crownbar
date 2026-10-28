@@ -7,8 +7,8 @@
 use tokio::runtime::Runtime;
 
 use crate::services::{
-    Wake, audio, battery, bluetooth, brightness, bus, caffeine, network, nightlight, notifications,
-    plugins, power, runtime, stats, weather,
+    Wake, audio, battery, bluetooth, brightness, bus, caffeine, live, network, nightlight,
+    notifications, plugins, power, runtime, screencast, stats, weather,
 };
 
 pub struct Services {
@@ -17,11 +17,13 @@ pub struct Services {
     pub brightness: brightness::Channel,
     pub caffeine: caffeine::Channel,
     pub bluetooth: bluetooth::Channel,
+    pub live: live::Channel,
     pub network: network::Channel,
     pub nightlight: nightlight::Channel,
     pub notifications: notifications::Channel,
     pub plugins: plugins::Channel,
     pub power: power::Channel,
+    pub screencast: screencast::Channel,
     pub stats: stats::Channel,
     pub weather: weather::Channel,
     /// Dropping this stops every backend.
@@ -66,11 +68,23 @@ impl Services {
         let (power_backend, power) = bus::connect(power::PowerState::default(), &wake);
         rt.spawn(power::run(power_backend));
 
+        let (screencast_backend, screencast) =
+            bus::connect(screencast::ScreencastState::default(), &wake);
+        rt.spawn(screencast::run(screencast_backend));
+
         let (stats_backend, stats) = bus::connect(stats::StatsState::default(), &wake);
         rt.spawn(stats::run(stats_backend));
 
         let (weather_backend, weather) = bus::connect(weather::WeatherState::default(), &wake);
         rt.spawn(weather::run(weather_backend));
+
+        let (live_backend, live) = bus::connect(live::LiveState::default(), &wake);
+        let bridges = live::Bridges {
+            audio: audio.tap(),
+            screencast: screencast.tap(),
+            caffeine: caffeine.tap(),
+        };
+        rt.spawn(live::run(live_backend, bridges));
 
         Ok(Self {
             audio,
@@ -78,11 +92,13 @@ impl Services {
             brightness,
             caffeine,
             bluetooth,
+            live,
             network,
             nightlight,
             notifications,
             plugins,
             power,
+            screencast,
             stats,
             weather,
             _runtime: rt,

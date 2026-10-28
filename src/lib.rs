@@ -1,5 +1,4 @@
 mod animation;
-mod ipc;
 pub mod services;
 pub mod theme;
 mod ui;
