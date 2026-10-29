@@ -161,15 +161,23 @@ impl Outputs {
     }
 
     fn hold(&mut self, kelvin: Option<u16>, qh: &QueueHandle<Self>) {
-        if self.kelvin == kelvin {
+        if hold_is_noop(
+            self.kelvin,
+            kelvin,
+            self.controls
+                .values()
+                .map(|control| control.gamma.is_some()),
+        ) {
             return;
         }
+        let changed = self.kelvin != kelvin;
         self.kelvin = kelvin;
         for (name, control) in &mut self.controls {
             match kelvin {
                 None => control.release(),
                 Some(kelvin) => match &control.gamma {
-                    Some(_) => control.apply(kelvin),
+                    Some(_) if changed => control.apply(kelvin),
+                    Some(_) => {}
                     None => {
                         control.gamma =
                             Some(self.manager.get_gamma_control(&control.output, qh, *name))
@@ -177,6 +185,20 @@ impl Outputs {
                 },
             }
         }
+    }
+}
+
+fn hold_is_noop(
+    held: Option<u16>,
+    requested: Option<u16>,
+    has_gamma: impl Iterator<Item = bool>,
+) -> bool {
+    if held != requested {
+        return false;
+    }
+    match requested {
+        Some(_) => has_gamma.all(|held| held),
+        None => has_gamma.all(|held| !held),
     }
 }
 
@@ -285,5 +307,33 @@ impl Dispatch<ZwlrGammaControlV1, u32> for Outputs {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hold_is_noop;
+
+    #[test]
+    fn unchanged_active_state_with_missing_control_is_not_a_noop() {
+        assert!(!hold_is_noop(
+            Some(3400),
+            Some(3400),
+            [true, false].into_iter()
+        ));
+    }
+
+    #[test]
+    fn unchanged_active_state_with_all_controls_held_is_a_noop() {
+        assert!(hold_is_noop(
+            Some(3400),
+            Some(3400),
+            [true, true].into_iter()
+        ));
+    }
+
+    #[test]
+    fn unchanged_off_state_with_no_controls_is_a_noop() {
+        assert!(hold_is_noop(None, None, [false, false].into_iter()));
     }
 }
