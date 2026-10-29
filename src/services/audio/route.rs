@@ -21,7 +21,16 @@ use crate::services::audio::{device::Volume, props::PropsUpdate};
 
 /// Which way a route carries audio. The pod stores this as an id, and SPA
 /// numbers directions input-first.
+const DIRECTION_INPUT: u32 = 0;
 const DIRECTION_OUTPUT: u32 = 1;
+
+fn direction(output: bool) -> Id<u32> {
+    Id(if output {
+        DIRECTION_OUTPUT
+    } else {
+        DIRECTION_INPUT
+    })
+}
 
 /// One port of one card.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -113,10 +122,26 @@ pub fn set(device: &Device, port: Port, change: PropsUpdate) -> std::io::Result<
             builder
                 .push_property(Route::Index, PropertyFlags::empty(), port.index)
                 .push_property(Route::Device, PropertyFlags::empty(), port.device)
+                .push_property(
+                    Route::Direction,
+                    PropertyFlags::empty(),
+                    direction(port.output),
+                )
                 .push_property(Route::Props, PropertyFlags::empty(), props)
                 // Persist it, so the level survives a replug the way every
                 // other mixer's does.
                 .push_property(Route::Save, PropertyFlags::empty(), true)
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn route_direction_matches_port_side() {
+        assert_eq!(direction(true), Id(DIRECTION_OUTPUT));
+        assert_eq!(direction(false), Id(DIRECTION_INPUT));
+    }
 }
