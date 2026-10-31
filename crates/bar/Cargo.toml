@@ -1,0 +1,18 @@
+[package]
+name = "crownbar"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+crownbar-config.workspace = true
+crownbar-integrations = { workspace = true, features = ["cli"] }
+crownbar-ui.workspace = true
+crownconfig.workspace = true
+crownos-ipc.workspace = true
+crownui.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+env_logger = "0.11"
+serde.workspace = true
+serde_json = "1"

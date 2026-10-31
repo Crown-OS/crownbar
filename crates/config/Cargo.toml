@@ -1,0 +1,8 @@
+[package]
+name = "crownbar-config"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+crownconfig.workspace = true
+crownos-config.workspace = true

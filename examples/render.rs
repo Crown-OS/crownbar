@@ -6,10 +6,8 @@
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
-use crownbar::{
-    BarSettings,
-    services::{Services, Wake},
-};
+use crownbar_config::BarSettings;
+use crownbar_integrations::{Services, Wake};
 use crownui::ext::TextSystem;
 use crownui::{kit, prelude::Size};
 use impeller::{ImpellerBackend, Offscreen};
@@ -36,7 +34,7 @@ fn main() -> Result<()> {
         height: (SURFACE.height * SCALE) as u32,
         scale: SCALE,
     };
-    let view = crownbar::view(services, wake, appearance, BarSettings::default());
+    let view = crownbar_ui::root(services, wake, appearance, BarSettings::default());
     let mut app = InlineApp::<ImpellerBackend, TaffyEngine>::with_surface(
         view,
         TaffyEngine::new(),
@@ -45,7 +43,7 @@ fn main() -> Result<()> {
         &surface,
     )
     .context("creating the offscreen renderer")?;
-    app.set_corner_shape(crownbar::theme::CORNER_SHAPE);
+    app.set_corner_shape(crownbar_ui::theme::CORNER_SHAPE);
     app.text_cache()
         .system_mut()
         .register_font(kit::inter_font().to_vec(), Some(kit::INTER_FAMILY))?;

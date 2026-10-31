@@ -1,0 +1,48 @@
+[package]
+name = "crownbar-integrations"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# Lets the live activities' wire types be named on the command line.
+cli = ["dep:clap"]
+
+[dependencies]
+# `tokio` gives the notification service an AsyncClient on the runtime the
+# other services already share, rather than a thread of its own.
+crownos-ipc = { workspace = true, features = ["tokio"] }
+# crownotify's own declaration of its protocol, so the bar cannot drift from
+# it. Without `daemon` it is the schema alone — none of the notification
+# daemon's rendering or D-Bus stack is built here.
+crownotify.workspace = true
+# crownplugind's wire contract.
+crownplugin-proto.workspace = true
+
+anyhow.workspace = true
+chrono.workspace = true
+clap = { workspace = true, optional = true }
+log.workspace = true
+serde.workspace = true
+tokio.workspace = true
+thiserror = "2.0"
+
+battery = "0.7.8"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Nightlight's gamma ramps belong to no surface, so the service holds a Wayland
+# connection of its own rather than reaching into the UI's.
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+rustix = { version = "1", features = ["fs", "event"] }
+bluer = { version = "0.17.4", features = ["bluetoothd", "full", "id", "rfcomm"] }
+pipewire-native = "0.1.4"
+pipewire-native-spa = "0.1.4"
+nmrs = "3.5"
+# The weather widget's two calls, and the only ones the bar makes. rustls
+# rather than native-tls so the bar carries no OpenSSL of its own.
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+  "http2",
+] }
+ddc-hi = { version = "0.4", default-features = false, features = ["ddc-i2c"] }

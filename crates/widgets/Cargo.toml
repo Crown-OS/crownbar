@@ -1,0 +1,13 @@
+[package]
+name = "crownbar-widgets"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+crownbar-config.workspace = true
+crownbar-integrations.workspace = true
+crownplugin-proto.workspace = true
+crownui.workspace = true
+
+chrono.workspace = true
+log.workspace = true

@@ -1,4 +1,2 @@
-config/target/
 /target
 .impeller_cache/
-live/target/

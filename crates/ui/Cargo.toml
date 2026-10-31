@@ -1,0 +1,37 @@
+[package]
+name = "crownbar-ui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+crownbar-config.workspace = true
+crownbar-integrations.workspace = true
+crownbar-widgets.workspace = true
+crownconfig.workspace = true
+crownui.workspace = true
+# crownplugind's wire contract, and the renderer that turns its trees into
+# crownui views in the bar's own palette.
+crownplugin-proto.workspace = true
+crownplugin-render.workspace = true
+
+kurbo = "0.13"
+log.workspace = true
+tokio.workspace = true
+# The battery reading is drawn as Inter's own outlines, centred on their ink.
+ttf-parser = "0.25"
+
+[dev-dependencies]
+anyhow.workspace = true
+crownos-ipc.workspace = true
+crowntest.workspace = true
+# The offscreen renderer behind `cargo run --example render`.
+impeller.workspace = true
+runtime.workspace = true
+semantics.workspace = true
+taffy-layout.workspace = true
+# The task executor a headless test installs, so `cx.spawn` futures run.
+view.workspace = true
+
+[[example]]
+name = "render"
+path = "../../examples/render.rs"

@@ -1,75 +1,53 @@
-[package]
-name = "crownbar"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-crownui = { path = "../crownui/crownui", default-features = false, features = ["wayland", "impeller", "static", "tokio"] }
-crownconfig = { path = "../crownui/crownconfig" }
-# `tokio` gives the notification service an AsyncClient on the runtime the
-# other services already share, rather than a thread of its own.
-crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc", features = ["tokio"] }
-# crownotify's own declaration of its protocol, so the bar cannot drift from
-# it. Without `daemon` it is the schema alone — none of the notification
-# daemon's rendering or D-Bus stack is built here.
+[workspace.dependencies]
+crownbar-config = { path = "crates/config" }
+crownbar-integrations = { path = "crates/integrations" }
+crownbar-ui = { path = "crates/ui" }
+crownbar-widgets = { path = "crates/widgets" }
+
+crownui = { git = "https://github.com/crown-os/crownui", default-features = false, features = ["wayland", "impeller", "static", "tokio"] }
+crownconfig = { git = "https://github.com/crown-os/crownui" }
+crowntest = { git = "https://github.com/crown-os/crownui" }
+impeller = { git = "https://github.com/crown-os/crownui", features = ["static"] }
+runtime = { git = "https://github.com/crown-os/crownui" }
+semantics = { git = "https://github.com/crown-os/crownui" }
+taffy-layout = { git = "https://github.com/crown-os/crownui" }
+view = { git = "https://github.com/crown-os/crownui" }
+crownos-config = { git = "https://github.com/crown-os/crownos-config", default-features = false }
+crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc" }
 crownotify = { git = "https://github.com/crown-os/crownotify", default-features = false }
-config = { path = "./config" }
-# The live activities' wire contract, shared with the `crownbar-live` CLI.
-crownbar-live = { path = "./live", default-features = false }
-crownos-config = { path = "../crownos-config", default-features = false }
-# crownplugind's wire contract, and the renderer that turns its trees into
-# crownui views in the bar's own palette.
-crownplugin-proto = { path = "../crownos-plugins/proto" }
-crownplugin-render = { path = "../crownos-plugins/render" }
+crownplugin-proto = { git = "https://github.com/crown-os/crownos-plugins" }
+crownplugin-render = { git = "https://github.com/crown-os/crownos-plugins" }
 
 anyhow = "1.0.102"
-battery = "0.7.8"
 chrono = "0.4.45"
-tracing = "0.1.44"
+clap = { version = "4.5", features = ["derive"] }
 log = "0.4"
-env_logger = "0.11"
-
-thiserror = "2.0"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net"] }
-zbus = { version = "5", default-features = false, features = ["tokio"] }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
-
-kurbo = "0.13"
-# The battery reading is drawn as Inter's own outlines, centred on their ink.
-ttf-parser = "0.25"
-# Nightlight's gamma ramps belong to no surface, so the service holds a Wayland
-# connection of its own rather than reaching into the UI's.
-wayland-client = "0.31"
-wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-rustix = { version = "1", features = ["fs", "event"] }
-bluer = { version = "0.17.4", features = ["bluetoothd", "full", "id", "rfcomm"] }
-pipewire-native = "0.1.4"
-pipewire-native-spa = "0.1.4"
-nmrs = "3.5"
-# The weather widget's two calls, and the only ones the bar makes. rustls
-# rather than native-tls so the bar carries no OpenSSL of its own.
-reqwest = { version = "0.12", default-features = false, features = [
-  "rustls-tls",
-  "json",
-  "http2",
-] }
 serde = { version = "1", features = ["derive"] }
-ddc-hi = { version = "0.4", default-features = false, features = ["ddc-i2c"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net"] }
 
-[dev-dependencies]
+# Local checkouts of the CrownOS repositories, cloned flat beside this one,
+# stand in for their GitHub sources.
+[patch."https://github.com/crown-os/crownui"]
+crownui = { path = "../crownui/crownui" }
+crownconfig = { path = "../crownui/crownconfig" }
 crowntest = { path = "../crownui/crowntest" }
-# The offscreen renderer behind `cargo run --example render`.
-impeller = { path = "../crownui/impeller", features = ["static"] }
+impeller = { path = "../crownui/impeller" }
 runtime = { path = "../crownui/runtime" }
 semantics = { path = "../crownui/semantics" }
 taffy-layout = { path = "../crownui/taffy-layout" }
-# The task executor a headless test installs, so `cx.spawn` futures run.
 view = { path = "../crownui/view" }
 
-[profile.release]
-lto = "thin"
-codegen-units = 1
-strip = "symbols"
+[patch."https://github.com/crown-os/crownos-plugins"]
+crownplugin-proto = { path = "../crownos-plugins/proto" }
+crownplugin-render = { path = "../crownos-plugins/render" }
 
 [patch."https://github.com/crown-os/crownos-config"]
 crownos-config = { path = "../crownos-config" }
@@ -79,6 +57,11 @@ crownos-ipc = { path = "../crownos-ipc" }
 
 [patch."https://github.com/crown-os/crownotify"]
 crownotify = { path = "../crownotify" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
 
 # `cargo flamegraph --profile profiling`: release codegen with symbols kept.
 [profile.profiling]
