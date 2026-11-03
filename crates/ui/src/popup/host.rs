@@ -19,7 +19,12 @@ use crownui::{
 };
 
 use super::{PANEL_RADIUS, PANEL_WIDTH, close, host_offset, rows, sheen::sheen};
-use crate::{pill::nothing, state::Bar, theme, util::theme::provide_derived_theme};
+use crate::{
+    pill::nothing,
+    state::Bar,
+    theme,
+    util::{signal::set_if_changed, theme::provide_derived_theme},
+};
 use crownbar_widgets::animation::SpringProfile;
 
 /// Backdrop blur asked of the compositor, in logical px: deep enough that
@@ -129,8 +134,9 @@ fn rows_layer(bar: Bar) -> impl View {
                         .state
                         .update(runtime, |state| state.widgets.popup(index, &state.services))
                         .unwrap_or_default();
-                    declared.set(runtime, (rows::height(&spec), rows::sizes_itself(&spec)));
-                    rows.set(runtime, rows::keyed(spec));
+                    let shape = (rows::height(&spec), rows::sizes_itself(&spec));
+                    set_if_changed(runtime, declared, shape);
+                    set_if_changed(runtime, rows, rows::keyed(spec));
                 });
                 cx.effect(move |runtime| {
                     let (height, sizes_itself) = declared.get(runtime);

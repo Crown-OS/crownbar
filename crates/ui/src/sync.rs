@@ -31,7 +31,7 @@ fn services_changed(cx: &mut Cx, bar: Bar) {
         .update(cx, |state| state.widgets.sync(&state.services));
     bar.touch(cx, changed);
     animate(cx, bar, changed);
-    bar.restate_panel(cx);
+    bar.restate_stale_panel(cx);
     // Caffeine's inhibitor is a Wayland object on the bar's own surface, so
     // the intent the service holds is turned into one here.
     let supported = cx

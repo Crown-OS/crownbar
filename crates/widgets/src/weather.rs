@@ -5,12 +5,11 @@
 //! the day/night pose crosses over at dusk, so a change that happens while
 //! nobody is looking is never caught as a jump when they look back.
 
-use std::sync::Arc;
-
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
     popup::{Header, Item, PanelBuilder, Row},
+    snapshot::Snapshot,
 };
 use crownbar_integrations::{
     Interest, Services,
@@ -18,7 +17,7 @@ use crownbar_integrations::{
 };
 
 pub struct WeatherWidget {
-    weather: Arc<WeatherState>,
+    weather: Snapshot<WeatherState>,
     label: String,
     /// What the glyph is fading *from*, and what it is fading *to*. `blend`
     /// carries it across; when it arrives the two are the same.
@@ -37,7 +36,7 @@ enum Target {
 impl WeatherWidget {
     pub fn new() -> Self {
         Self {
-            weather: Arc::default(),
+            weather: Snapshot::default(),
             label: String::new(),
             from: Condition::default(),
             to: Condition::default(),
@@ -97,11 +96,9 @@ impl BarWidget for WeatherWidget {
     }
 
     fn sync(&mut self, services: &Services) -> bool {
-        let weather = services.weather.read();
-        if Arc::ptr_eq(&weather, &self.weather) {
+        if !self.weather.replace(services.weather.read()) {
             return false;
         }
-        self.weather = weather;
         let Some(current) = self.weather.current else {
             return false;
         };
@@ -114,7 +111,7 @@ impl BarWidget for WeatherWidget {
     }
 
     fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
-        let state = self.weather.clone();
+        let state = self.weather.for_panel();
         let current = state.current?;
         // A panel that is being looked at is worth a faster refresh than one
         // nobody has open.
@@ -192,6 +189,10 @@ impl BarWidget for WeatherWidget {
         services
             .weather
             .send(WeatherCommand::Interest(Interest::Idle));
+    }
+
+    fn panel_stale(&self) -> bool {
+        self.weather.panel_stale()
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {

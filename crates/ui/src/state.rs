@@ -158,6 +158,19 @@ impl Bar {
         }
     }
 
+    /// Restate the shown panel if what its widget would show has changed.
+    pub fn restate_stale_panel(self, runtime: &mut Runtime) {
+        let Some(index) = self.popup.shown.with_untracked(runtime, |shown| *shown) else {
+            return;
+        };
+        if self
+            .state
+            .with(runtime, |state| state.widgets.panel_stale(index))
+        {
+            self.restate_panel(runtime);
+        }
+    }
+
     /// The shown panel's rows went stale.
     pub fn restate_panel(self, runtime: &mut Runtime) {
         if self.popup.shown.with_untracked(runtime, Option::is_some) {

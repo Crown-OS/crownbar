@@ -17,6 +17,7 @@ use crate::{
     network::{Joined, MAX_OTHER, NetworkCommand, NetworkState, Radio, WifiNetwork, link},
     reconnect::Backoff,
     status::{Availability, ErrorKind, Failure, Interest},
+    util::field::set_changed,
 };
 
 /// Leading, not trailing: a busy radio then delays a refresh by at most this
@@ -159,26 +160,22 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing
         false => None,
     };
 
-    publish.edit(|state| {
-        let (known, others) = match (&listed, radio.on()) {
-            (Some(lists), _) => lists.clone(),
-            (None, true) => (state.known.clone(), state.others.clone()),
-            (None, false) => (Vec::new(), Vec::new()),
+    publish.edit(move |state| {
+        // Unlisted, a radio that is up keeps what the last listing found.
+        let lists = match (listed, radio.on()) {
+            (Some(lists), _) => Some(lists),
+            (None, true) => None,
+            (None, false) => Some(Default::default()),
         };
-        let next = NetworkState {
-            availability: Availability::Ready,
-            radio,
-            connected: joined.clone(),
-            known,
-            others,
-            scanning: state.scanning && radio.on(),
-            pending: state.pending.clone(),
-            hotspot: state.hotspot.clone(),
-            failure: state.failure.clone(),
-            fallback_quality: state.fallback_quality,
-        };
-        let changed = *state != next;
-        *state = next;
+        let scanning = state.scanning && radio.on();
+        let mut changed = set_changed(&mut state.availability, Availability::Ready)
+            | set_changed(&mut state.radio, radio)
+            | set_changed(&mut state.connected, joined)
+            | set_changed(&mut state.scanning, scanning);
+        if let Some((known, others)) = lists {
+            changed |=
+                set_changed(&mut state.known, known) | set_changed(&mut state.others, others);
+        }
         changed
     });
 }

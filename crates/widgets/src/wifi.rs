@@ -5,12 +5,11 @@
 //! not — so the pill is right on a cold boot and stays right across a daemon
 //! restart.
 
-use std::sync::Arc;
-
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WifiState,
     animation::Spring,
     popup::{Header, Item, PanelBuilder, Row},
+    snapshot::Snapshot,
 };
 use crownbar_integrations::{
     Interest, Services,
@@ -21,7 +20,7 @@ use crownbar_integrations::{
 /// One scanning sweep, in seconds.
 const SWEEP_SECS: f32 = 1.4;
 pub struct WifiWidget {
-    network: Arc<NetworkState>,
+    network: Snapshot<NetworkState>,
     strength: Spring,
     off: Spring,
     searching: Spring,
@@ -42,7 +41,7 @@ enum Target {
 impl WifiWidget {
     pub fn new() -> Self {
         Self {
-            network: Arc::default(),
+            network: Snapshot::default(),
             strength: Spring::new(0.0),
             off: Spring::new(0.0),
             searching: Spring::new(0.0),
@@ -58,8 +57,7 @@ impl WifiWidget {
     /// Anything short of a carrier reads as searching — that covers scanning,
     /// associating and DHCP alike.
     fn retarget(&mut self) -> bool {
-        let network = self.network.clone();
-        let (strength, off, searching) = match (network.radio, &network.connected) {
+        let (strength, off, searching) = match (self.network.radio, &self.network.connected) {
             (Radio::Off | Radio::HardBlocked | Radio::Absent, _) => (0.0, 1.0, 0.0),
             (_, Some(joined)) => (joined.strength, 0.0, 0.0),
             (_, None) => (0.0, 0.0, 1.0),
@@ -116,11 +114,9 @@ impl BarWidget for WifiWidget {
     }
 
     fn sync(&mut self, services: &Services) -> bool {
-        let network = services.network.read();
-        if Arc::ptr_eq(&network, &self.network) {
+        if !self.network.replace(services.network.read()) {
             return false;
         }
-        self.network = network;
         // Only the pill's own state is worth a repaint; a change to the list
         // behind it reaches the panel through its own invalidation.
         self.retarget()
@@ -132,7 +128,7 @@ impl BarWidget for WifiWidget {
             .network
             .send(NetworkCommand::Interest(Interest::Panel));
 
-        let state = self.network.clone();
+        let state = self.network.for_panel();
         let mut panel = PanelBuilder::new();
         let header = Header::new("Wi-Fi").toggle(state.radio.on());
         if state.radio.on() {
@@ -246,6 +242,10 @@ impl BarWidget for WifiWidget {
         services
             .network
             .send(NetworkCommand::Interest(Interest::Idle));
+    }
+
+    fn panel_stale(&self) -> bool {
+        self.network.panel_stale()
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {

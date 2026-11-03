@@ -4,12 +4,11 @@
 //! from rfkill when BlueZ is not up and from BlueZ when it is — so the pill is
 //! right before any daemon starts and stays right if one dies.
 
-use std::sync::Arc;
-
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
     popup::{Header, Item, PanelBuilder, Row},
+    snapshot::Snapshot,
 };
 use crownbar_integrations::{
     Interest, Services,
@@ -18,7 +17,7 @@ use crownbar_integrations::{
 };
 
 pub struct BluetoothWidget {
-    bluetooth: Arc<BluetoothState>,
+    bluetooth: Snapshot<BluetoothState>,
     on: Spring,
     targets: Vec<Option<Target>>,
 }
@@ -34,7 +33,7 @@ enum Target {
 impl BluetoothWidget {
     pub fn new() -> Self {
         Self {
-            bluetooth: Arc::default(),
+            bluetooth: Snapshot::default(),
             on: Spring::new(0.0),
             targets: Vec::new(),
         }
@@ -65,11 +64,9 @@ impl BarWidget for BluetoothWidget {
     }
 
     fn sync(&mut self, services: &Services) -> bool {
-        let bluetooth = services.bluetooth.read();
-        if Arc::ptr_eq(&bluetooth, &self.bluetooth) {
+        if !self.bluetooth.replace(services.bluetooth.read()) {
             return false;
         }
-        self.bluetooth = bluetooth;
         self.on
             .set_target(if self.bluetooth.radio.on() { 1.0 } else { 0.0 })
     }
@@ -80,7 +77,7 @@ impl BarWidget for BluetoothWidget {
             .bluetooth
             .send(BluetoothCommand::Interest(Interest::Panel));
 
-        let state = self.bluetooth.clone();
+        let state = self.bluetooth.for_panel();
         let mut panel = PanelBuilder::new();
         let header = Header::new("Bluetooth").toggle(state.radio.on());
         if state.radio.on() {
@@ -214,6 +211,10 @@ impl BarWidget for BluetoothWidget {
         services
             .bluetooth
             .send(BluetoothCommand::Interest(Interest::Idle));
+    }
+
+    fn panel_stale(&self) -> bool {
+        self.bluetooth.panel_stale()
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {

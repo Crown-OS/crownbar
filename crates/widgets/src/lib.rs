@@ -10,6 +10,7 @@ mod notifications;
 pub mod popup;
 mod remote;
 mod screencast;
+mod snapshot;
 mod volume;
 mod weather;
 mod wifi;
@@ -256,6 +257,12 @@ pub trait BarWidget {
         false
     }
 
+    /// Whether the panel would now show something other than what it was
+    /// last built with. A widget that cannot tell says it would.
+    fn panel_stale(&self) -> bool {
+        true
+    }
+
     /// Whether background work for the panel is still in flight. While this
     /// is `true` the popup surface stays on the frame clock, so a reading
     /// that lands mid-animation shows up immediately rather than at the next
@@ -386,6 +393,11 @@ impl WidgetRegistry {
     /// Build the panel for the widget at `idx`, if it has one.
     pub fn popup(&mut self, idx: usize, services: &Services) -> Option<PopupSpec> {
         self.widgets.get_mut(idx)?.popup(services)
+    }
+
+    /// Whether the panel of the widget at `idx` went stale.
+    pub fn panel_stale(&self, idx: usize) -> bool {
+        self.widget(idx).is_none_or(BarWidget::panel_stale)
     }
 
     /// Whether clicking the widget at `idx` opens a panel rather than acting

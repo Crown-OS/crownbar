@@ -9,6 +9,7 @@
 mod device;
 mod session;
 mod signal;
+mod watch;
 
 use std::sync::Arc;
 

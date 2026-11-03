@@ -6,12 +6,13 @@
 //! subprocesses every three seconds while the panel was open — is a single
 //! `all_properties` round trip for whichever device actually changed.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use bluer::{Adapter, AdapterEvent, Address, DeviceEvent, Session};
-use futures_util::{StreamExt, stream::SelectAll};
+use bluer::{Adapter, AdapterEvent, Address, Session};
+use futures_util::{FutureExt, StreamExt};
 use tokio::time;
 
+use super::watch::DeviceWatch;
 use crate::{
     bluetooth::{BluetoothCommand, BluetoothState, BtDevice, RadioState},
     bus::{Commands, Publisher},
@@ -25,8 +26,6 @@ use crate::{
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 /// A scan left running past this is a battery drain nobody asked for.
 const DISCOVERY_LIMIT: Duration = Duration::from_secs(30);
-
-type Events = SelectAll<futures_util::stream::BoxStream<'static, (Address, DeviceEvent)>>;
 
 pub async fn run(publish: Publisher<BluetoothState>, mut commands: Commands<BluetoothCommand>) {
     let mut backoff = Backoff::default();
@@ -59,12 +58,12 @@ async fn connect(
     let adapter = session.default_adapter().await.map_err(|e| e.to_string())?;
 
     let mut adapter_events = adapter.events().await.map_err(|e| e.to_string())?;
-    let mut device_events: Events = SelectAll::new();
+    let mut watch = DeviceWatch::default();
     let mut discovery = None;
     let mut discovery_deadline = None;
     let mut interest = Interest::Idle;
 
-    refresh(&adapter, publish, &mut device_events).await;
+    refresh(&adapter, publish, &mut watch).await;
 
     loop {
         let sleep_until =
@@ -80,20 +79,20 @@ async fn connect(
                         interest = next;
                     }
                     apply(&adapter, publish, command, &mut discovery, &mut discovery_deadline).await;
-                    refresh(&adapter, publish, &mut device_events).await;
+                    refresh(&adapter, publish, &mut watch).await;
                 }
                 None => return Ok(()),
             },
             event = adapter_events.next() => match event {
-                Some(AdapterEvent::PropertyChanged(_) | AdapterEvent::DeviceAdded(_)
-                    | AdapterEvent::DeviceRemoved(_)) => {
-                    refresh(&adapter, publish, &mut device_events).await;
+                // A discovery reports devices in bursts; one read answers
+                // whatever has already queued behind the first.
+                Some(_) => {
+                    while adapter_events.next().now_or_never().flatten().is_some() {}
+                    refresh(&adapter, publish, &mut watch).await;
                 }
                 None => return Err("the adapter stopped answering".into()),
             },
-            Some(_) = device_events.next(), if !device_events.is_empty() => {
-                refresh(&adapter, publish, &mut device_events).await;
-            }
+            () = watch.changed() => refresh(&adapter, publish, &mut watch).await,
             // Discovery yields nearby devices as `DeviceAdded` on the adapter
             // stream, so the scan stream itself only has to be kept alive.
             Some(_) = next_discovery(&mut discovery), if discovery.is_some() => {}
@@ -122,7 +121,7 @@ async fn next_discovery(discovery: &mut Option<Discovery>) -> Option<AdapterEven
 /// The whole list rather than a delta, because BlueZ's per-property events do
 /// not say whether a device was added or merely changed, and a list this small
 /// — a handful of paired devices — costs one round trip each.
-async fn refresh(adapter: &Adapter, publish: &Publisher<BluetoothState>, events: &mut Events) {
+async fn refresh(adapter: &Adapter, publish: &Publisher<BluetoothState>, watch: &mut DeviceWatch) {
     let powered = adapter.is_powered().await.ok();
     let alias = adapter.alias().await.ok();
     let discovering = adapter.is_discovering().await.unwrap_or(false);
@@ -130,7 +129,6 @@ async fn refresh(adapter: &Adapter, publish: &Publisher<BluetoothState>, events:
 
     let mut paired = Vec::new();
     let mut discovered = Vec::new();
-    let mut watched = HashMap::new();
     for address in adapter.device_addresses().await.unwrap_or_default() {
         let Ok(device) = adapter.device(address) else {
             continue;
@@ -138,8 +136,8 @@ async fn refresh(adapter: &Adapter, publish: &Publisher<BluetoothState>, events:
         let Ok(properties) = device.all_properties().await else {
             continue;
         };
+        watch.follow(&device).await;
         let entry = BtDevice::from_properties(address, &properties);
-        watched.insert(address, device);
         if entry.paired {
             paired.push(entry);
         } else {
@@ -147,31 +145,21 @@ async fn refresh(adapter: &Adapter, publish: &Publisher<BluetoothState>, events:
         }
     }
 
-    // Resubscribe from scratch: `SelectAll` drops a stream when it ends, so a
-    // device that came back needs a fresh one, and rebuilding is cheaper than
-    // tracking which of them are still live.
-    events.clear();
-    for (address, device) in watched {
-        if let Ok(stream) = device.events().await {
-            events.push(Box::pin(stream.map(move |event| (address, event))));
-        }
-    }
-
-    publish.edit(|state| {
-        let next = BluetoothState {
+    publish.edit(move |state| {
+        let mut next = BluetoothState {
             availability: Availability::Ready,
             radio,
-            adapter: alias.clone(),
-            paired: paired.clone(),
-            discovered: discovered.clone(),
+            adapter: alias,
+            paired,
+            discovered,
             discovering,
             // A refresh that agrees with the optimistic change clears it; one
             // that does not is what the failure was there to explain.
             failure: state.failure.clone(),
         };
+        next.sort();
         let changed = *state != next;
         *state = next;
-        state.sort();
         changed
     });
 }
