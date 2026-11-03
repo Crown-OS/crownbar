@@ -2,6 +2,8 @@
 
 use bluer::{Address, DeviceProperty};
 
+use super::SignalLevel;
+
 /// What a device is, for picking its glyph.
 ///
 /// The device *name* is deliberately never consulted: "MX Master" says nothing
@@ -95,8 +97,8 @@ pub struct BtDevice {
     /// headset takes seconds to come up.
     pub busy: bool,
     pub battery: Option<u8>,
-    /// Only meaningful while discovering; nearby devices sort on it.
-    pub rssi: Option<i16>,
+    /// Only reported while discovering; nearby devices sort on it.
+    pub signal: Option<SignalLevel>,
 }
 
 impl BtDevice {
@@ -113,7 +115,7 @@ impl BtDevice {
             connected: false,
             busy: false,
             battery: None,
-            rssi: None,
+            signal: None,
         };
         for property in properties {
             match property {
@@ -125,7 +127,7 @@ impl BtDevice {
                 DeviceProperty::Paired(value) => device.paired = *value,
                 DeviceProperty::Connected(value) => device.connected = *value,
                 DeviceProperty::BatteryPercentage(value) => device.battery = Some(*value),
-                DeviceProperty::Rssi(value) => device.rssi = Some(*value),
+                DeviceProperty::Rssi(value) => device.signal = Some(SignalLevel::from_rssi(*value)),
                 _ => {}
             }
         }

@@ -43,6 +43,7 @@ const BADGE_GLYPH: f32 = 16.0;
 const PLAIN_GLYPH: f32 = 18.0;
 const BATTERY_CELL: (f32, f32) = (24.0, 12.0);
 const WARNING_GLYPH: f32 = 16.0;
+const SIGNAL_METER: (f32, f32) = (14.0, 11.0);
 
 /// One row of the shown panel, with the key that decides whether it is still
 /// the row it was.
@@ -105,6 +106,7 @@ fn shape_key(index: usize, row: &Row) -> u64 {
             item.chevron,
             item.warning,
             item.battery.is_some(),
+            item.signal.is_some(),
             item.detail.is_some(),
             matches!(item.icon, Icon::None),
         )
@@ -282,6 +284,9 @@ fn item_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyVie
     if item.warning {
         view = view.trailing(warning(bar));
     }
+    if item.signal.is_some() {
+        view = view.trailing(signal_meter(bar, row));
+    }
     if item.chevron {
         view = view.chevron();
     }
@@ -332,6 +337,27 @@ fn battery_cell(bar: Bar, row: Signal<PanelRow>) -> AnyView {
     })
     .w(BATTERY_CELL.0)
     .h(BATTERY_CELL.1)
+    .boxed()
+}
+
+fn signal_meter(bar: Bar, row: Signal<PanelRow>) -> AnyView {
+    canvas(move |runtime, size, list| {
+        let strength = row.with(runtime, |row| match &row.row {
+            Row::Item(item) => item.signal.unwrap_or_default(),
+            _ => 0.0,
+        });
+        let palette = bar.palette.get(runtime);
+        let bounds = Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height));
+        icons::draw_in(
+            &mut Scene::new(list),
+            Icon::Signal { strength },
+            bounds,
+            palette.fg_dim,
+            &palette,
+        );
+    })
+    .w(SIGNAL_METER.0)
+    .h(SIGNAL_METER.1)
     .boxed()
 }
 

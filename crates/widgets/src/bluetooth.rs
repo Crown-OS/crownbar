@@ -99,6 +99,9 @@ impl BarWidget for BluetoothWidget {
                 } else if device.busy {
                     item = item.detail("…");
                 }
+                if let Some(signal) = device.signal {
+                    item = item.signal(signal.fraction());
+                }
                 panel.action(item.row(), Target::Paired(device.address));
             }
             if state.paired.is_empty() {
@@ -112,12 +115,11 @@ impl BarWidget for BluetoothWidget {
                     chevron: false,
                 });
                 for device in &state.discovered {
-                    panel.action(
-                        Item::new(&device.name)
-                            .icon(Icon::Rune(rune_for(device.kind)))
-                            .row(),
-                        Target::Discovered(device.address),
-                    );
+                    let mut item = Item::new(&device.name).icon(Icon::Rune(rune_for(device.kind)));
+                    if let Some(signal) = device.signal {
+                        item = item.signal(signal.fraction());
+                    }
+                    panel.action(item.row(), Target::Discovered(device.address));
                 }
             }
         }

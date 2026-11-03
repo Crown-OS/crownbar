@@ -17,6 +17,7 @@ mod notifications;
 mod numerals;
 mod rune;
 mod screenshare;
+mod signal;
 mod volume;
 mod weather;
 mod wifi;
@@ -116,6 +117,7 @@ pub fn draw_in(scene: &mut Scene<'_>, icon: Icon, bounds: Rect, fg: Color, p: &P
                 accent: p.accent(accent),
             },
         ),
+        Icon::Signal { strength } => signal::draw(scene, bounds, fg, strength),
         Icon::Rune(r) => rune::draw(scene, bounds, fg, r),
     }
 }

@@ -69,6 +69,8 @@ pub struct Item {
     pub detail: Option<String>,
     /// Battery level ∈ [0, 1] drawn as a small cell after `detail`.
     pub battery: Option<f32>,
+    /// Signal strength ∈ [0, 1] drawn as bars at the row's right edge.
+    pub signal: Option<f32>,
     pub chevron: bool,
     /// The current output / the joined network: highlighted row, filled badge.
     pub selected: bool,
@@ -104,6 +106,11 @@ impl Item {
 
     pub fn battery(mut self, level: f32) -> Self {
         self.battery = Some(level.clamp(0.0, 1.0));
+        self
+    }
+
+    pub fn signal(mut self, strength: f32) -> Self {
+        self.signal = Some(strength.clamp(0.0, 1.0));
         self
     }
 

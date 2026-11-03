@@ -96,6 +96,10 @@ pub enum Icon {
         progress: Option<f32>,
         pulse: f32,
     },
+    /// Signal bars, lit up to `strength` ∈ [0, 1].
+    Signal {
+        strength: f32,
+    },
     /// A fixed, SVG-authored glyph with no animated state. Panels are full of
     /// these — a headphone, a laptop, a chevron — and they would each need a
     /// variant of their own otherwise.

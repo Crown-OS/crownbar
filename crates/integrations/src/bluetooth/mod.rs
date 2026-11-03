@@ -8,11 +8,13 @@
 
 mod device;
 mod session;
+mod signal;
 
 use std::sync::Arc;
 
 pub use bluer::Address;
 pub use device::{BtDevice, DeviceKind};
+pub use signal::SignalLevel;
 
 use crate::{
     bus::Backend,
@@ -103,12 +105,8 @@ impl BluetoothState {
                 .cmp(&a.connected)
                 .then_with(|| a.name.cmp(&b.name))
         });
-        self.discovered.sort_by(|a, b| {
-            b.rssi
-                .unwrap_or(i16::MIN)
-                .cmp(&a.rssi.unwrap_or(i16::MIN))
-                .then_with(|| a.name.cmp(&b.name))
-        });
+        self.discovered
+            .sort_by(|a, b| b.signal.cmp(&a.signal).then_with(|| a.name.cmp(&b.name)));
         self.discovered.truncate(MAX_DISCOVERED);
     }
 }

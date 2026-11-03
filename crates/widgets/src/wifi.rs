@@ -84,6 +84,7 @@ impl WifiWidget {
                     // macOS flags an open network, and weak ciphers deserve
                     // the same warning.
                     .warning(!network.secured || network.weak)
+                    .signal(network.strength)
                     .row(),
                 match self.network.joinable(&network.ssid) {
                     true => Target::Join(network.ssid.clone()),
@@ -150,6 +151,7 @@ impl BarWidget for WifiWidget {
                         .icon(Icon::Rune(Rune::Wifi))
                         .selected(true)
                         .warning(!joined.secured || joined.weak)
+                        .signal(joined.strength)
                         .row(),
                     Target::Join(joined.ssid.clone()),
                 );
