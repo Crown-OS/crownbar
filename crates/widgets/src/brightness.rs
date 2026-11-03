@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Interest, Services,
@@ -84,10 +84,7 @@ impl BarWidget for BrightnessWidget {
 
         let state = self.brightness.clone();
         let mut panel = PanelBuilder::new();
-        panel.row(Row::Header {
-            title: "Display".into(),
-            toggle: None,
-        });
+        panel.row(Header::new("Display").row());
 
         for display in &state.displays {
             // One screen needs no heading; several do, or the sliders are
@@ -116,10 +113,7 @@ impl BarWidget for BrightnessWidget {
         if self.nightlight.availability.usable() {
             let night = self.nightlight.clone();
             panel.row(Row::Separator);
-            panel.row(Row::Header {
-                title: "Night Light".into(),
-                toggle: Some(night.active),
-            });
+            panel.row(Header::new("Night Light").toggle(night.active).row());
             panel.action(
                 Row::Slider {
                     icon: Icon::Rune(Rune::Moon),

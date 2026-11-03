@@ -10,11 +10,14 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crownui::{
     kit::{
-        PanelHeaderOptions, PanelItemOptions, PanelSectionOptions, PanelSliderOptions, calendar,
-        panel_action, panel_header, panel_item, panel_readout, panel_section, panel_separator,
-        panel_slider, use_theme,
+        PanelHeaderKind, PanelHeaderOptions, PanelItemOptions, PanelSectionOptions,
+        PanelSliderOptions, calendar, panel_action, panel_header, panel_item, panel_readout,
+        panel_section, panel_separator, panel_slider, use_theme,
     },
-    prelude::{AnyView, Color, Cx, Listeners, Memo, Signal, Styled, View, bind, canvas},
+    prelude::{
+        AnyView, Color, CursorIcon, Cx, Element, Listeners, Memo, Role, Semantic, Signal, Styled,
+        TRANSPARENT, View, bind, canvas, hstack,
+    },
 };
 use kurbo::Rect;
 
@@ -27,7 +30,7 @@ use crate::{
 };
 use crownbar_widgets::{
     BatteryState, Icon, PopupAction, PopupSpec, Rune,
-    popup::{Item, Row},
+    popup::{Header, Item, Row},
 };
 
 /// Space above the first row and below the last, the same as the kit's inset
@@ -43,7 +46,9 @@ const BADGE_GLYPH: f32 = 16.0;
 const PLAIN_GLYPH: f32 = 18.0;
 const BATTERY_CELL: (f32, f32) = (24.0, 12.0);
 const WARNING_GLYPH: f32 = 16.0;
-const SIGNAL_METER: (f32, f32) = (14.0, 11.0);
+const SIGNAL_METER: (f32, f32) = (16.0, 12.0);
+const HEADER_BUTTON: f32 = 28.0;
+const HEADER_BUTTON_GLYPH: f32 = 16.0;
 
 /// One row of the shown panel, with the key that decides whether it is still
 /// the row it was.
@@ -80,7 +85,7 @@ pub fn sizes_itself(spec: &PopupSpec) -> bool {
 
 fn row_height(row: &Row) -> f32 {
     match row {
-        Row::Header { .. } => 36.0,
+        Row::Header(_) => 36.0,
         Row::Slider { .. } | Row::Item(_) => ITEM_HEIGHT,
         Row::Section { .. } => SECTION_HEIGHT,
         Row::Separator => 16.0,
@@ -96,7 +101,12 @@ fn shape_key(index: usize, row: &Row) -> u64 {
     index.hash(&mut hasher);
     std::mem::discriminant(row).hash(&mut hasher);
     match row {
-        Row::Header { title, toggle } => (title, toggle.is_some()).hash(&mut hasher),
+        Row::Header(header) => (
+            &header.title,
+            header.toggle.is_some(),
+            header.button.map(|button| button.icon),
+        )
+            .hash(&mut hasher),
         Row::Section { title, chevron } => (title, chevron).hash(&mut hasher),
         Row::Action { label } => label.hash(&mut hasher),
         Row::Item(item) => (
@@ -123,14 +133,7 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
     let current = row.with_untracked(cx, |row| row.row.clone());
     match current {
         Row::Separator => panel_separator().boxed(),
-        Row::Header {
-            title,
-            toggle: None,
-        } => panel_header(title).boxed(),
-        Row::Header {
-            title,
-            toggle: Some(on),
-        } => header_switch(cx, bar, row, title, on),
+        Row::Header(header) => header_view(cx, bar, row, header),
         Row::Slider { value, .. } => slider(cx, bar, row, value),
         Row::Section { title, chevron } => {
             let section = panel_section(title);
@@ -183,30 +186,84 @@ fn activate(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) {
     dispatch(cx, bar, PopupAction::Activate { row });
 }
 
+fn header_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, header: Header) -> AnyView {
+    let mut view = panel_header(header.title);
+    if header.button.is_some() {
+        view = view.trailing(header_button(cx, bar, row));
+    }
+    match header.toggle {
+        Some(on) => header_switch(cx, bar, row, view, on),
+        None => view.boxed(),
+    }
+}
+
+fn stated_header(row: &Row) -> Option<&Header> {
+    match row {
+        Row::Header(header) => Some(header),
+        _ => None,
+    }
+}
+
 /// The header's master switch. Kit's switch flips its own signal; the flip
 /// bubbles here, where it becomes the widget's action.
-fn header_switch(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, title: String, on: bool) -> AnyView {
+fn header_switch(
+    cx: &mut Cx,
+    bar: Bar,
+    row: Signal<PanelRow>,
+    header: Element<PanelHeaderKind>,
+    on: bool,
+) -> AnyView {
     let switch = cx.signal(on);
     cx.effect(move |runtime| {
-        if let Row::Header {
-            toggle: Some(on), ..
-        } = row.with(runtime, |row| row.row.clone())
-        {
+        if let Some(on) = row.with(runtime, |row| {
+            stated_header(&row.row).and_then(|h| h.toggle)
+        }) {
             switch.set(runtime, on);
         }
     });
-    panel_header(title)
+    header
         .switch(switch)
         .on_click(move |cx, _| {
             let on = switch.with_untracked(cx, |on| *on);
             let (index, stated) = row.with_untracked(cx, |row| {
-                let stated = matches!(row.row, Row::Header { toggle: Some(stated), .. } if stated);
-                (row.index, stated)
+                let stated = stated_header(&row.row).and_then(|h| h.toggle);
+                (row.index, stated.unwrap_or_default())
             });
             if on != stated {
                 dispatch(cx, bar, PopupAction::Toggle { row: index, on });
             }
         })
+        .boxed()
+}
+
+/// The header's round glyph button. Pressing it activates the header's row.
+fn header_button(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
+    let theme = use_theme(cx);
+    let hovered = cx.signal(false);
+    let tint = cx.memo(move |runtime| theme.with(runtime, |theme| theme.popover.text));
+    let icon_of = |row: &Row| {
+        stated_header(row)
+            .and_then(|header| header.button)
+            .map_or(Icon::None, |button| Icon::Rune(button.icon))
+    };
+    hstack(glyph(bar, row, tint, HEADER_BUTTON_GLYPH, icon_of))
+        .size(HEADER_BUTTON)
+        .rounded(HEADER_BUTTON / 2.0)
+        .items_center()
+        .justify_center()
+        .cursor(CursorIcon::Pointer)
+        .role(Role::Button)
+        .label("Refresh")
+        .bg(bind(move |runtime| {
+            let hovered = hovered.get(runtime);
+            theme.with(runtime, |theme| match hovered {
+                true => theme.popover.hover_bg,
+                false => TRANSPARENT,
+            })
+        }))
+        .on_pointer_enter(move |cx, _| hovered.set(cx, true))
+        .on_pointer_leave(move |cx, _| hovered.set(cx, false))
+        .on_click(move |cx, _| activate(cx, bar, row))
         .boxed()
 }
 
@@ -388,10 +445,7 @@ mod tests {
     #[test]
     fn the_height_is_what_the_rows_add_up_to() {
         let rows = vec![
-            Row::Header {
-                title: "Sound".into(),
-                toggle: None,
-            },
+            Header::new("Sound").row(),
             Row::Separator,
             Item::new("Speakers").row(),
         ];

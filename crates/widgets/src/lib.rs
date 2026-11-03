@@ -108,7 +108,7 @@ pub enum Icon {
 
 /// Static glyphs shared by the popup panels. Geometry lives in
 /// `crownbar_ui::icons`; this is only the name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Rune {
     Headphones,
     Speaker,
@@ -140,6 +140,8 @@ pub enum Rune {
     XCircle,
     HandRaised,
     VideoCamera,
+    /// Look again: rescan, refetch.
+    Refresh,
 }
 
 /// Battery visual state. Everything but the readout is spring-smoothed, so a

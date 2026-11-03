@@ -73,6 +73,12 @@ async fn connect(
                 // Idempotent: the panel restates its interest on every rebuild,
                 // and a rebuild is exactly what a fresh snapshot causes.
                 Some(NetworkCommand::Interest(next)) => interest = next,
+                // Asked for by hand, so the periodic scan starts counting
+                // from here rather than following straight after.
+                Some(NetworkCommand::Scan) => {
+                    scan(&nm, publish).await;
+                    scanned = time::Instant::now();
+                }
                 Some(command) => {
                     apply(&nm, publish, command).await;
                     refresh(&nm, publish, listing).await;

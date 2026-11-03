@@ -122,6 +122,8 @@ pub enum BluetoothCommand {
     PairAndConnect(Address),
     /// `adapter.remove_device`.
     Forget(Address),
+    /// Look for nearby devices again, restarting the discovery window.
+    Scan,
     /// Discovery runs only while the panel is up: a scan left going is a
     /// battery drain and a privacy leak.
     Interest(Interest),

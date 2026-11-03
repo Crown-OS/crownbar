@@ -97,14 +97,12 @@ async fn connect(
             // Discovery yields nearby devices as `DeviceAdded` on the adapter
             // stream, so the scan stream itself only has to be kept alive.
             Some(_) = next_discovery(&mut discovery), if discovery.is_some() => {}
+            // What the scan found stays listed until the panel closes, so a
+            // row never vanishes from under the pointer.
             _ = time::sleep_until(sleep_until), if discovery_deadline.is_some() => {
                 discovery = None;
                 discovery_deadline = None;
-                publish.edit(|state| {
-                    state.discovering = false;
-                    state.discovered.clear();
-                    true
-                });
+                publish.edit(|state| std::mem::replace(&mut state.discovering, false));
             }
         }
     }
@@ -220,21 +218,14 @@ async fn apply(
         BluetoothCommand::Forget(address) => {
             report(publish, adapter.remove_device(address).await);
         }
+        BluetoothCommand::Scan => {
+            // A scan already running is restarted, which resets its limit.
+            *discovery = None;
+            discover(adapter, discovery, deadline).await;
+        }
         BluetoothCommand::Interest(interest) => {
             match interest {
-                Interest::Panel => {
-                    // `_with_changes` keeps yielding across a
-                    // `Discovering(false)` transition, which the plain stream
-                    // does not — and that transition is exactly what a panel
-                    // has to survive.
-                    match adapter.discover_devices_with_changes().await {
-                        Ok(stream) => {
-                            *discovery = Some(Box::pin(stream));
-                            *deadline = Some(time::Instant::now() + DISCOVERY_LIMIT);
-                        }
-                        Err(e) => log::info!("could not start discovery: {e}"),
-                    }
-                }
+                Interest::Panel => discover(adapter, discovery, deadline).await,
                 // Dropping the stream is what stops the scan; BlueZ has no
                 // method for it.
                 Interest::Idle => {
@@ -248,6 +239,24 @@ async fn apply(
                 }
             }
         }
+    }
+}
+
+/// Look for nearby devices for [`DISCOVERY_LIMIT`].
+async fn discover(
+    adapter: &Adapter,
+    discovery: &mut Option<Discovery>,
+    deadline: &mut Option<time::Instant>,
+) {
+    // `_with_changes` keeps yielding across a `Discovering(false)` transition,
+    // which the plain stream does not — and that transition is exactly what a
+    // panel has to survive.
+    match adapter.discover_devices_with_changes().await {
+        Ok(stream) => {
+            *discovery = Some(Box::pin(stream));
+            *deadline = Some(time::Instant::now() + DISCOVERY_LIMIT);
+        }
+        Err(e) => log::info!("could not start discovery: {e}"),
     }
 }
 

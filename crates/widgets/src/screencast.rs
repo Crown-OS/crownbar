@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Services,
@@ -129,10 +129,7 @@ impl BarWidget for ScreencastWidget {
 fn panel(state: &ScreencastState) -> Option<(PopupSpec, Vec<Option<Target>>)> {
     let latest = state.casts.iter().max_by_key(|cast| cast.id)?;
     let mut panel = PanelBuilder::new();
-    panel.row(Row::Header {
-        title: "Screen Sharing".into(),
-        toggle: None,
-    });
+    panel.row(Header::new("Screen Sharing").row());
     for cast in &state.casts {
         panel.row(
             Item::new(cast.app.clone())

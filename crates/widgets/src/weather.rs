@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Interest, Services,
@@ -123,10 +123,7 @@ impl BarWidget for WeatherWidget {
             .send(WeatherCommand::Interest(Interest::Panel));
 
         let mut panel = PanelBuilder::new();
-        panel.row(Row::Header {
-            title: state.place.as_deref().unwrap_or("Weather").to_string(),
-            toggle: None,
-        });
+        panel.row(Header::new(state.place.as_deref().unwrap_or("Weather")).row());
         panel.row(Row::Readout {
             primary: degrees(current.celsius),
             secondary: format!(

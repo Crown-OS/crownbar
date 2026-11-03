@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WifiState,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Interest, Services,
@@ -31,6 +31,7 @@ pub struct WifiWidget {
 
 #[derive(Clone)]
 enum Target {
+    Refresh,
     /// Joinable from here: open, or already saved.
     Join(String),
     /// Needs a password the bar has nowhere to type, so it hands off.
@@ -132,10 +133,15 @@ impl BarWidget for WifiWidget {
 
         let state = self.network.clone();
         let mut panel = PanelBuilder::new();
-        panel.row(Row::Header {
-            title: "Wi-Fi".into(),
-            toggle: Some(state.radio.on()),
-        });
+        let header = Header::new("Wi-Fi").toggle(state.radio.on());
+        if state.radio.on() {
+            panel.action(
+                header.button(Rune::Refresh, state.scanning).row(),
+                Target::Refresh,
+            );
+        } else {
+            panel.row(header.row());
+        }
 
         if !state.radio.changeable() {
             panel.row(
@@ -198,6 +204,12 @@ impl BarWidget for WifiWidget {
                 AfterAction::Stay
             }
             PopupAction::Activate { row } => match self.targets.get(row).cloned().flatten() {
+                Some(Target::Refresh) => {
+                    if !self.network.scanning {
+                        services.network.send(NetworkCommand::Scan);
+                    }
+                    AfterAction::Stay
+                }
                 Some(Target::Join(ssid)) => {
                     // Tapping the joined network disconnects, the way the
                     // Bluetooth rows toggle.

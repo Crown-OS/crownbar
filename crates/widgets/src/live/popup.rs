@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::{
     AfterAction, Icon, PopupAction, PopupSpec,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::live::{Activity, Control};
 
@@ -17,10 +17,7 @@ pub enum Target {
 /// the same panel without drawing one.
 pub fn panel(activity: &Activity, now: Instant) -> (PopupSpec, Vec<Option<Target>>) {
     let mut panel = PanelBuilder::new();
-    panel.row(Row::Header {
-        title: activity.title.to_string(),
-        toggle: None,
-    });
+    panel.row(Header::new(activity.title.as_ref()).row());
 
     if !activity.caption.is_empty() {
         let mut primary = String::new();

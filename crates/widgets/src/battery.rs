@@ -12,7 +12,7 @@ use std::sync::Arc;
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Services,
@@ -122,10 +122,7 @@ impl BarWidget for BatteryWidget {
         let charge = self.charge.charge?;
 
         let mut panel = PanelBuilder::new();
-        panel.row(Row::Header {
-            title: "Battery".into(),
-            toggle: None,
-        });
+        panel.row(Header::new("Battery").row());
         panel.row(Item::new(charge.summary()).plain().enabled(false).row());
 
         let profiles = &self.power.profiles;

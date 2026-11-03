@@ -11,7 +11,7 @@
 
 use crownui::kit::CalendarDate;
 
-use crate::{Icon, Surface};
+use crate::{Icon, Rune, Surface};
 
 /// A whole panel: an anchored, rounded card of rows. Every panel is
 /// `crownbar_ui::popup::PANEL_WIDTH` wide, so only its rows vary.
@@ -22,11 +22,8 @@ pub struct PopupSpec {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Row {
-    /// Panel title, with the optional master switch on its right.
-    Header {
-        title: String,
-        toggle: Option<bool>,
-    },
+    /// Panel title, with an optional button and master switch on its right.
+    Header(Header),
     /// A continuous value with an icon at its left — the volume slider.
     Slider {
         icon: Icon,
@@ -56,6 +53,48 @@ pub enum Row {
     /// A plugin's panel, drawn from the tree crownplugind sent. It sizes
     /// itself.
     Remote(Surface),
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Header {
+    pub title: String,
+    /// The master switch, when the panel has one.
+    pub toggle: Option<bool>,
+    /// A round glyph button before the switch. Pressing it activates the
+    /// header's row.
+    pub button: Option<HeaderButton>,
+}
+
+/// A header's glyph button, e.g. "look again".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeaderButton {
+    pub icon: Rune,
+    /// Work the button started is still running: it shows a spinner and
+    /// ignores presses until it is done.
+    pub busy: bool,
+}
+
+impl Header {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn toggle(mut self, on: bool) -> Self {
+        self.toggle = Some(on);
+        self
+    }
+
+    pub fn button(mut self, icon: Rune, busy: bool) -> Self {
+        self.button = Some(HeaderButton { icon, busy });
+        self
+    }
+
+    pub fn row(self) -> Row {
+        Row::Header(self)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

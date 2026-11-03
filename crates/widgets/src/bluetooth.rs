@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Interest, Services,
@@ -25,6 +25,7 @@ pub struct BluetoothWidget {
 
 #[derive(Clone, Copy)]
 enum Target {
+    Refresh,
     Paired(Address),
     Discovered(Address),
     Settings,
@@ -75,10 +76,15 @@ impl BarWidget for BluetoothWidget {
 
         let state = self.bluetooth.clone();
         let mut panel = PanelBuilder::new();
-        panel.row(Row::Header {
-            title: "Bluetooth".into(),
-            toggle: Some(state.radio.on()),
-        });
+        let header = Header::new("Bluetooth").toggle(state.radio.on());
+        if state.radio.on() {
+            panel.action(
+                header.button(Rune::Refresh, state.discovering).row(),
+                Target::Refresh,
+            );
+        } else {
+            panel.row(header.row());
+        }
 
         if !state.radio.changeable() {
             panel.row(
@@ -154,6 +160,12 @@ impl BarWidget for BluetoothWidget {
             }
             PopupAction::Activate { row } => {
                 match self.targets.get(row).copied().flatten() {
+                    Some(Target::Refresh) => {
+                        if !self.bluetooth.discovering {
+                            services.bluetooth.send(BluetoothCommand::Scan);
+                        }
+                        AfterAction::Stay
+                    }
                     Some(Target::Paired(address)) => {
                         let connected = self
                             .bluetooth

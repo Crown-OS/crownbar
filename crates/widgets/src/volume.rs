@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Services,
@@ -111,10 +111,7 @@ impl BarWidget for VolumeWidget {
 
     fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
         let mut panel = PanelBuilder::new();
-        panel.row(Row::Header {
-            title: "Sound".into(),
-            toggle: None,
-        });
+        panel.row(Header::new("Sound").row());
 
         let output = self.audio.output_volume();
         panel.action(

@@ -9,7 +9,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec,
     animation::Spring,
-    popup::{Item, PanelBuilder, Row},
+    popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
     Services,
@@ -68,10 +68,7 @@ impl BarWidget for CaffeineWidget {
     fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
         let state = self.caffeine.clone();
         let mut panel = PanelBuilder::new();
-        panel.row(Row::Header {
-            title: "Keep Awake".into(),
-            toggle: Some(state.active),
-        });
+        panel.row(Header::new("Keep Awake").toggle(state.active).row());
 
         let detail = match state.remaining() {
             Some(left) => remaining(left),
