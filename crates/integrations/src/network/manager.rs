@@ -161,6 +161,7 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing
             known,
             others,
             scanning: false,
+            pending: state.pending.clone(),
             hotspot: state.hotspot.clone(),
             failure: state.failure.clone(),
             fallback_quality: state.fallback_quality,
@@ -244,23 +245,48 @@ async fn apply(nm: &NetworkManager, publish: &Publisher<NetworkState>, command: 
         }
         NetworkCommand::Scan => scan(nm, publish).await,
         NetworkCommand::Connect(ssid) => {
-            publish.edit(|state| {
-                state.failure = None;
-                state.scanning = true;
-                true
-            });
             // Open, or already saved — the panel never sends anything that
             // would need a password typed here.
-            let result =
-                time::timeout(COMMAND_TIMEOUT, nm.connect(&ssid, None, WifiSecurity::Open))
-                    .await
-                    .unwrap_or(Err(ConnectionError::Timeout));
+            let joining = nm.connect(&ssid, None, WifiSecurity::Open);
+            pend(publish, Some(ssid.clone()));
+            let result = time::timeout(COMMAND_TIMEOUT, joining)
+                .await
+                .unwrap_or(Err(ConnectionError::Timeout));
+            pend(publish, None);
             report(publish, result);
         }
-        NetworkCommand::Disconnect => report(publish, nm.disconnect(None).await),
+        NetworkCommand::Disconnect => {
+            pend(
+                publish,
+                publish
+                    .read()
+                    .connected
+                    .as_ref()
+                    .map(|joined| joined.ssid.clone()),
+            );
+            let result = time::timeout(COMMAND_TIMEOUT, nm.disconnect(None))
+                .await
+                .unwrap_or(Err(ConnectionError::Timeout));
+            pend(publish, None);
+            report(publish, result);
+        }
         NetworkCommand::Forget(ssid) => report(publish, nm.forget(&ssid).await),
         NetworkCommand::Interest(_) => {}
     }
+}
+
+/// Mark `ssid` as having a join or a leave in flight, clearing the last
+/// failure as a new attempt starts.
+fn pend(publish: &Publisher<NetworkState>, ssid: Option<String>) {
+    publish.edit(|state| {
+        let starting = ssid.is_some();
+        let changed = state.pending != ssid || (starting && state.failure.is_some());
+        state.pending = ssid;
+        if starting {
+            state.failure = None;
+        }
+        changed
+    });
 }
 
 fn report<T>(publish: &Publisher<NetworkState>, result: nmrs::Result<T>) {

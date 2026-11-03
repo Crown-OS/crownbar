@@ -91,6 +91,8 @@ pub struct NetworkState {
     /// In range, never saved. Strongest first, already capped.
     pub others: Vec<WifiNetwork>,
     pub scanning: bool,
+    /// The network a join or a leave is in flight for.
+    pub pending: Option<String>,
     pub hotspot: HotspotState,
     pub failure: Option<Failure>,
     /// Carrier quality straight from the kernel, for the icon before

@@ -86,6 +86,7 @@ impl WifiWidget {
                     // the same warning.
                     .warning(!network.secured || network.weak)
                     .signal(network.strength)
+                    .busy(self.network.pending.as_deref() == Some(network.ssid.as_str()))
                     .row(),
                 match self.network.joinable(&network.ssid) {
                     true => Target::Join(network.ssid.clone()),
@@ -158,6 +159,7 @@ impl BarWidget for WifiWidget {
                         .selected(true)
                         .warning(!joined.secured || joined.weak)
                         .signal(joined.strength)
+                        .busy(state.pending.as_deref() == Some(joined.ssid.as_str()))
                         .row(),
                     Target::Join(joined.ssid.clone()),
                 );
@@ -210,6 +212,9 @@ impl BarWidget for WifiWidget {
                     }
                     AfterAction::Stay
                 }
+                // One join or leave at a time; the spinner on its row says
+                // which.
+                Some(Target::Join(_)) if self.network.pending.is_some() => AfterAction::Stay,
                 Some(Target::Join(ssid)) => {
                     // Tapping the joined network disconnects, the way the
                     // Bluetooth rows toggle.
@@ -223,7 +228,7 @@ impl BarWidget for WifiWidget {
                     } else {
                         NetworkCommand::Connect(ssid)
                     });
-                    AfterAction::Close
+                    AfterAction::Stay
                 }
                 // A new secured network needs a password, and the popup has no
                 // keyboard — so settings takes it from here.

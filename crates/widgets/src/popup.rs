@@ -115,6 +115,8 @@ pub struct Item {
     pub selected: bool,
     /// Amber warning triangle on the right — an open network, say.
     pub warning: bool,
+    /// A connect or disconnect is in flight: a spinner at the right edge.
+    pub busy: bool,
     pub enabled: bool,
 }
 
@@ -160,6 +162,11 @@ impl Item {
 
     pub fn warning(mut self, warning: bool) -> Self {
         self.warning = warning;
+        self
+    }
+
+    pub fn busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
         self
     }
 

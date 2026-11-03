@@ -39,6 +39,12 @@ impl BluetoothWidget {
             targets: Vec::new(),
         }
     }
+
+    fn device_busy(&self, address: Address) -> bool {
+        self.bluetooth
+            .device(address)
+            .is_some_and(|device| device.busy)
+    }
 }
 
 impl BarWidget for BluetoothWidget {
@@ -97,13 +103,12 @@ impl BarWidget for BluetoothWidget {
             for device in &state.paired {
                 let mut item = Item::new(&device.name)
                     .icon(Icon::Rune(rune_for(device.kind)))
-                    .selected(device.connected);
+                    .selected(device.connected)
+                    .busy(device.busy);
                 if let Some(battery) = device.battery.filter(|_| device.connected) {
                     item = item
                         .detail(format!("{battery}%"))
                         .battery(battery as f32 / 100.0);
-                } else if device.busy {
-                    item = item.detail("…");
                 }
                 if let Some(signal) = device.signal {
                     item = item.signal(signal.fraction());
@@ -121,7 +126,9 @@ impl BarWidget for BluetoothWidget {
                     chevron: false,
                 });
                 for device in &state.discovered {
-                    let mut item = Item::new(&device.name).icon(Icon::Rune(rune_for(device.kind)));
+                    let mut item = Item::new(&device.name)
+                        .icon(Icon::Rune(rune_for(device.kind)))
+                        .busy(device.busy);
                     if let Some(signal) = device.signal {
                         item = item.signal(signal.fraction());
                     }
@@ -166,12 +173,16 @@ impl BarWidget for BluetoothWidget {
                         }
                         AfterAction::Stay
                     }
+                    Some(Target::Paired(address) | Target::Discovered(address))
+                        if self.device_busy(address) =>
+                    {
+                        AfterAction::Stay
+                    }
                     Some(Target::Paired(address)) => {
                         let connected = self
                             .bluetooth
                             .device(address)
-                            .map(|device| device.connected)
-                            .unwrap_or(false);
+                            .is_some_and(|device| device.connected);
                         services.bluetooth.send(if connected {
                             BluetoothCommand::Disconnect(address)
                         } else {

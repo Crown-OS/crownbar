@@ -12,7 +12,7 @@ use crownui::{
     kit::{
         PanelHeaderKind, PanelHeaderOptions, PanelItemOptions, PanelSectionOptions,
         PanelSliderOptions, calendar, panel_action, panel_header, panel_item, panel_readout,
-        panel_section, panel_separator, panel_slider, use_theme,
+        panel_section, panel_separator, panel_slider, spinner, use_theme,
     },
     prelude::{
         AnyView, Color, CursorIcon, Cx, Element, Listeners, Memo, Role, Semantic, Signal, Styled,
@@ -47,6 +47,7 @@ const PLAIN_GLYPH: f32 = 18.0;
 const BATTERY_CELL: (f32, f32) = (24.0, 12.0);
 const WARNING_GLYPH: f32 = 16.0;
 const SIGNAL_METER: (f32, f32) = (16.0, 12.0);
+const SPINNER: f32 = 16.0;
 const HEADER_BUTTON: f32 = 28.0;
 const HEADER_BUTTON_GLYPH: f32 = 16.0;
 
@@ -117,6 +118,7 @@ fn shape_key(index: usize, row: &Row) -> u64 {
             item.warning,
             item.battery.is_some(),
             item.signal.is_some(),
+            item.busy,
             item.detail.is_some(),
             matches!(item.icon, Icon::None),
         )
@@ -343,6 +345,9 @@ fn item_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyVie
     }
     if item.signal.is_some() {
         view = view.trailing(signal_meter(bar, row));
+    }
+    if item.busy {
+        view = view.trailing(spinner().size(SPINNER));
     }
     if item.chevron {
         view = view.chevron();
