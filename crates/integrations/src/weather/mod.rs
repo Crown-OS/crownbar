@@ -41,6 +41,8 @@ pub struct WeatherState {
     pub current: Option<Current>,
     /// Today first, then the next few days.
     pub outlook: Vec<Outlook>,
+    /// A round trip is in flight.
+    pub refreshing: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -85,7 +87,18 @@ pub async fn run(backend: Backend<WeatherState, WeatherCommand>) {
             _ = time::sleep(due) => {}
         }
 
-        due = match refresh(&client, &publish, &mut place).await {
+        publish.edit(|state| !std::mem::replace(&mut state.refreshing, true));
+        let landed = refresh(&client, &publish, &mut place).await;
+        publish.edit(|state| std::mem::replace(&mut state.refreshing, false));
+
+        // Presses that queued up while the round trip was in flight are
+        // answered by it.
+        while let Ok(command) = commands.try_recv() {
+            if let WeatherCommand::Interest(next) = command {
+                interest = next;
+            }
+        }
+        due = match landed {
             true if interest == Interest::Panel => PANEL_REFRESH,
             true => IDLE_REFRESH,
             false => RETRY,

@@ -27,6 +27,10 @@ const DEBOUNCE: Duration = Duration::from_secs(1);
 /// takes the radio off its channel, so this is deliberately slow: the list a
 /// panel opens on is the one the last sweep left.
 const SCAN_PERIOD: Duration = Duration::from_secs(30);
+/// How long a sweep of the band takes NetworkManager. The scan request
+/// returns at once, so the list is re-read, and the scan called done, after
+/// this.
+const SCAN_SETTLE: Duration = Duration::from_secs(4);
 /// Joining blocks on association and DHCP.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -63,6 +67,7 @@ async fn connect(
     // Back-dated so the first panel scans the moment it opens; every later one
     // waits the period out, which is what keeps a reopened panel off the radio.
     let mut scanned = time::Instant::now() - SCAN_PERIOD;
+    let mut settles: Option<time::Instant> = None;
 
     refresh(&nm, publish, false).await;
 
@@ -76,7 +81,9 @@ async fn connect(
                 // Asked for by hand, so the periodic scan starts counting
                 // from here rather than following straight after.
                 Some(NetworkCommand::Scan) => {
-                    scan(&nm, publish).await;
+                    if settles.is_none() {
+                        settles = Some(scan(&nm, publish).await);
+                    }
                     scanned = time::Instant::now();
                 }
                 Some(command) => {
@@ -97,24 +104,28 @@ async fn connect(
                 }
                 None => return Err("NetworkManager stopped answering".into()),
             },
-            _ = time::sleep_until(scanned + SCAN_PERIOD), if listing => {
-                scan(&nm, publish).await;
+            _ = time::sleep_until(scanned + SCAN_PERIOD), if listing && settles.is_none() => {
+                settles = Some(scan(&nm, publish).await);
                 scanned = time::Instant::now();
+            }
+            _ = time::sleep_until(settles.unwrap_or_else(time::Instant::now)), if settles.is_some() => {
+                settles = None;
+                publish.edit(|state| std::mem::replace(&mut state.scanning, false));
+                refresh(&nm, publish, true).await;
             }
         }
     }
 }
 
-async fn scan(nm: &NetworkManager, publish: &Publisher<NetworkState>) {
-    publish.edit(|state| {
-        let changed = !state.scanning;
-        state.scanning = true;
-        changed
-    });
+/// Ask for a sweep and say one is running. Returns when the list is worth
+/// reading again. A refused request — NetworkManager turns down scans that
+/// follow too closely on another — still settles, on whatever is listed.
+async fn scan(nm: &NetworkManager, publish: &Publisher<NetworkState>) -> time::Instant {
+    publish.edit(|state| !std::mem::replace(&mut state.scanning, true));
     if let Err(e) = nm.scan_networks(None).await {
         log::info!("could not start a scan: {e}");
     }
-    refresh(nm, publish, true).await;
+    time::Instant::now() + SCAN_SETTLE
 }
 
 /// Re-derive the snapshot. NetworkManager's events do not say what changed, so
@@ -160,7 +171,7 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing
             connected: joined.clone(),
             known,
             others,
-            scanning: false,
+            scanning: state.scanning && radio.on(),
             pending: state.pending.clone(),
             hotspot: state.hotspot.clone(),
             failure: state.failure.clone(),
@@ -243,7 +254,6 @@ async fn apply(nm: &NetworkManager, publish: &Publisher<NetworkState>, command: 
             });
             report(publish, nm.set_wireless_enabled(on).await);
         }
-        NetworkCommand::Scan => scan(nm, publish).await,
         NetworkCommand::Connect(ssid) => {
             // Open, or already saved — the panel never sends anything that
             // would need a password typed here.
@@ -271,7 +281,8 @@ async fn apply(nm: &NetworkManager, publish: &Publisher<NetworkState>, command: 
             report(publish, result);
         }
         NetworkCommand::Forget(ssid) => report(publish, nm.forget(&ssid).await),
-        NetworkCommand::Interest(_) => {}
+        // The connection loop owns the scan clock and the interest.
+        NetworkCommand::Scan | NetworkCommand::Interest(_) => {}
     }
 }
 

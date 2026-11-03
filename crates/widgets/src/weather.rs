@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::{
-    AfterAction, BarWidget, Icon, PopupAction, PopupSpec,
+    AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
     popup::{Header, Item, PanelBuilder, Row},
 };
@@ -123,7 +123,12 @@ impl BarWidget for WeatherWidget {
             .send(WeatherCommand::Interest(Interest::Panel));
 
         let mut panel = PanelBuilder::new();
-        panel.row(Header::new(state.place.as_deref().unwrap_or("Weather")).row());
+        panel.action(
+            Header::new(state.place.as_deref().unwrap_or("Weather"))
+                .button(Rune::Refresh, state.refreshing)
+                .row(),
+            Target::Refresh,
+        );
         panel.row(Row::Readout {
             primary: degrees(current.celsius),
             secondary: format!(
@@ -167,12 +172,6 @@ impl BarWidget for WeatherWidget {
         if let Some(why) = state.availability.reason() {
             panel.row(Item::new(why).plain().enabled(false).row());
         }
-        panel.action(
-            Row::Action {
-                label: "Refresh".into(),
-            },
-            Target::Refresh,
-        );
 
         let (spec, targets) = panel.finish();
         self.targets = targets;
@@ -182,6 +181,7 @@ impl BarWidget for WeatherWidget {
     fn on_popup(&mut self, action: PopupAction, services: &Services) -> AfterAction {
         if let PopupAction::Activate { row } = action
             && let Some(Target::Refresh) = self.targets.get(row).copied().flatten()
+            && !self.weather.refreshing
         {
             services.weather.send(WeatherCommand::Refresh);
         }

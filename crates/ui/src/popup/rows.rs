@@ -16,7 +16,7 @@ use crownui::{
     },
     prelude::{
         AnyView, Color, CursorIcon, Cx, Element, Listeners, Memo, Role, Semantic, Signal, Styled,
-        TRANSPARENT, View, bind, canvas, hstack,
+        TRANSPARENT, View, bind, canvas, hstack, show,
     },
 };
 use kurbo::Rect;
@@ -243,12 +243,24 @@ fn header_button(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
     let theme = use_theme(cx);
     let hovered = cx.signal(false);
     let tint = cx.memo(move |runtime| theme.with(runtime, |theme| theme.popover.text));
+    let busy = cx.memo(move |runtime| {
+        row.with(runtime, |row| {
+            stated_header(&row.row)
+                .and_then(|header| header.button)
+                .is_some_and(|button| button.busy)
+        })
+    });
     let icon_of = |row: &Row| {
         stated_header(row)
             .and_then(|header| header.button)
             .map_or(Icon::None, |button| Icon::Rune(button.icon))
     };
-    hstack(glyph(bar, row, tint, HEADER_BUTTON_GLYPH, icon_of))
+    let face = show(
+        busy,
+        || spinner().size(HEADER_BUTTON_GLYPH),
+        move || glyph(bar, row, tint, HEADER_BUTTON_GLYPH, icon_of),
+    );
+    hstack(face)
         .size(HEADER_BUTTON)
         .rounded(HEADER_BUTTON / 2.0)
         .items_center()
