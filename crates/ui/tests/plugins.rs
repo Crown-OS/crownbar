@@ -22,8 +22,8 @@ use crownbar_integrations::{Services, Wake};
 use crownconfig::Appearance;
 use crownos_ipc::{RemoteError, Server, ServiceBuilder};
 use crownplugin_proto::{
-    Decision, EntityInfo, Host, LogLine, Node, NodeId, Part, RemoteSurface, SettingValue, Snapshot,
-    Source, SurfaceKey, Tree, UiEvent, plugind,
+    Decision, EntityInfo, HitKey, Host, LauncherSnapshot, LogLine, Node, NodeId, Part,
+    RemoteSurface, SettingValue, Snapshot, Source, SurfaceKey, Tree, UiEvent, plugind,
 };
 use crowntest::{Role, TestApp, role};
 use view::{TaskExecutor, TaskFuture, TaskId};
@@ -152,6 +152,16 @@ impl plugind::Handler for Daemon {
     fn dev_load(&mut self, _path: String) -> Result<String, RemoteError> {
         unsupported()
     }
+
+    fn attach_launcher(&mut self) -> Result<LauncherSnapshot, RemoteError> {
+        unsupported()
+    }
+
+    fn launcher_shown(&mut self, _shown: bool) {}
+
+    fn search(&mut self, _query: String) {}
+
+    fn activate(&mut self, _hit: HitKey) {}
 
     /// Stands in for the daemon going away.
     fn reload(&mut self, _id: String) -> Result<(), RemoteError> {
