@@ -25,10 +25,9 @@ pub fn run() -> Result<()> {
     };
     let layer = LayerOptions::new(BAR_NAMESPACE, edge | Anchor::LEFT | Anchor::RIGHT)
         .layer(Layer::Top)
-        // The surface reaches across the whole output so a panel can open
-        // anywhere beside the bar without a resize round trip; only the bar's
-        // own extent is reserved from other windows.
-        .height(LayerExtent::Output)
+        // Only the bar's strip until a panel opens: the surface grows to the
+        // whole output while one is up (see `popup`).
+        .height(LayerExtent::Fixed(bar_config.reach()))
         .exclusive_zone(bar_config.reach() as i32 - PANEL_GAP as i32);
     let config = AppConfig::new("CrownBar")
         .app_id(BAR_NAMESPACE)
