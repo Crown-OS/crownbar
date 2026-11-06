@@ -35,7 +35,7 @@ impl Services {
         let rt = runtime::build()?;
 
         let (audio_backend, audio) = bus::connect(audio::AudioState::default(), &wake);
-        audio::run(audio_backend);
+        audio::run(audio_backend, rt.handle().clone());
 
         let (battery_backend, battery) = bus::connect(battery::BatteryState::default(), &wake);
         rt.spawn(battery::run(battery_backend));

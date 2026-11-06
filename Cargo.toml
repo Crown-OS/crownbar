@@ -68,3 +68,10 @@ strip = "symbols"
 inherits = "release"
 debug = "line-tables-only"
 strip = "none"
+
+# pipewire-native numbers node and link states from zero, so a node entering
+# its error state (a Bluetooth sink as it disconnects) fails to decode and
+# drops the whole connection. The copy in Crown-OS/vendor numbers them as
+# PipeWire does.
+[patch.crates-io]
+pipewire-native = { path = "../vendor/pipewire-native-0.1.4" }

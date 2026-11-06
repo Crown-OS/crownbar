@@ -65,11 +65,11 @@ pub type Channel = crate::bus::Channel<AudioState, AudioCommand>;
 /// PipeWire's loop is not async and its lock blocks until the current
 /// iteration finishes, so it gets a thread of its own rather than a runtime
 /// worker, and reads the command pipe there directly.
-pub fn run(backend: Backend<AudioState, AudioCommand>) {
+pub fn run(backend: Backend<AudioState, AudioCommand>, runtime: tokio::runtime::Handle) {
     let Backend { publish, commands } = backend;
     if let Err(e) = std::thread::Builder::new()
         .name("crownbar-pw".into())
-        .spawn(move || backend::run(publish, commands))
+        .spawn(move || backend::run(publish, commands, runtime))
     {
         log::warn!("could not start the pipewire thread: {e}");
     }
@@ -91,6 +91,23 @@ impl AudioCommand {
 }
 
 impl AudioState {
+    /// The volume of any device or stream.
+    pub fn volume(&self, id: NodeId) -> Option<Volume> {
+        let devices = self
+            .outputs
+            .iter()
+            .chain(&self.inputs)
+            .map(|d| (d.id, d.volume));
+        let streams = self
+            .playback
+            .iter()
+            .chain(&self.recording)
+            .map(|s| (s.id, s.volume));
+        devices
+            .chain(streams)
+            .find_map(|(node, volume)| (node == id).then_some(volume))
+    }
+
     /// Fold the default-device names into the per-device flags and put both
     /// lists in the order a panel draws them.
     pub(crate) fn resolve(&mut self) {
@@ -166,6 +183,9 @@ impl AudioState {
                 self.resolve();
             }
             return changed;
+        }
+        if properties.is_some_and(Stream::is_level_meter) {
+            return self.remove(id);
         }
         self.playback
             .iter_mut()

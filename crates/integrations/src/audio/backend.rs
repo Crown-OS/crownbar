@@ -4,18 +4,23 @@
 //! loop iteration finishes, so it must never be taken from the event loop or a
 //! runtime worker. Registry and node callbacks land on the loop thread and
 //! publish straight from there; commands arrive on this thread and take the
-//! lock around each batch, a drag's run of levels collapsed to its last.
+//! lock around each batch, a drag's run of levels collapsed to its last. The
+//! wait for the next command borrows the bar's runtime, so a lost connection
+//! can interrupt it.
 
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 
+use anyhow::Context as _;
 use pipewire_native::{
     context::Context,
+    core::Core,
     keys,
     properties::Properties,
     proxy::{
+        HasProxy, ProxyEvents,
         device::{Device as PwDevice, DeviceEvents},
         metadata::{Metadata, MetadataEvents},
         node::{Node, NodeChangeMask, NodeEvents, NodeState},
@@ -26,6 +31,7 @@ use pipewire_native::{
     types,
 };
 use pipewire_native_spa::param::ParamType;
+use tokio::{runtime::Handle, sync::Notify, time::Instant};
 
 use crate::{
     audio::{
@@ -35,6 +41,7 @@ use crate::{
         route,
     },
     bus::{Commands, Publisher},
+    reconnect::Backoff,
     status::Availability,
 };
 
@@ -44,6 +51,12 @@ const DEFAULT_METADATA: &str = "default";
 const AUDIO_DEVICE: &str = "Audio/Device";
 const DEFAULT_SINK_KEY: &str = "default.audio.sink";
 const DEFAULT_SOURCE_KEY: &str = "default.audio.source";
+/// What a default-device choice is written to. The session manager resolves
+/// it into the effective key above, falls back while the chosen device is
+/// absent and returns to it when it comes back; writing the effective key
+/// directly is overwritten at its next rescan.
+const CONFIGURED_SINK_KEY: &str = "default.configured.audio.sink";
+const CONFIGURED_SOURCE_KEY: &str = "default.configured.audio.source";
 const JSON: &str = "Spa:String:JSON";
 
 /// Bound proxies, keyed by global id. Held apart from the published snapshot:
@@ -73,51 +86,123 @@ impl Card {
     }
 }
 
-pub fn run(publish: Publisher<AudioState>, mut commands: Commands<AudioCommand>) {
+pub fn run(publish: Publisher<AudioState>, mut commands: Commands<AudioCommand>, runtime: Handle) {
     // Sets up the crate's global support libraries and logging. Every other
     // call in the crate, `ThreadLoop::new` included, assumes it has run.
     pipewire_native::init();
 
-    let mut props = Properties::new();
-    props.set(keys::APP_NAME, "crownbar".into());
-
-    let Some(loop_) = ThreadLoop::new(&props) else {
-        return fail(&publish, "could not create a pipewire loop");
-    };
-    let context = match Context::new(loop_.main_loop(), Properties::new()) {
-        Ok(context) => context,
-        Err(e) => return fail(&publish, e),
-    };
-    let core = match context.connect(None) {
-        Ok(core) => core,
-        Err(e) => return fail(&publish, e),
-    };
-    let registry = match core.registry() {
-        Ok(registry) => registry,
-        Err(e) => return fail(&publish, e),
-    };
-
-    let tracked: Bound = Bound::default();
     let publish = Arc::new(publish);
-    watch(&registry, &tracked, &publish);
-
-    publish.edit(|state| {
-        state.availability = Availability::Ready;
-        true
-    });
-
-    loop_.run();
-    while let Some(mut command) = commands.blocking_recv() {
-        let _guard = loop_.lock();
-        while let Ok(next) = commands.try_recv() {
-            if !next.supersedes(&command) {
-                apply(command, &tracked, &publish);
-            }
-            command = next;
+    let mut backoff = Backoff::default();
+    loop {
+        let started = Instant::now();
+        match Session::open(&publish) {
+            Ok(session) => match session.serve(&mut commands, &runtime, &publish) {
+                Ended::BarGone => return,
+                Ended::Lost => fail(&publish, "lost the pipewire connection"),
+            },
+            Err(e) => fail(&publish, format!("{e:#}")),
         }
-        apply(command, &tracked, &publish);
+        backoff.reset_if_held(started);
+        if !runtime.block_on(backoff.wait_discarding(&mut commands)) {
+            return;
+        }
     }
-    loop_.quit();
+}
+
+enum Ended {
+    Lost,
+    BarGone,
+}
+
+/// One connection to the server. A server restart, or any message the client
+/// library cannot decode, ends it; [`run`] then opens a fresh one, because the
+/// library never reconnects on its own and would leave the bar showing the
+/// devices of a dead connection.
+struct Session {
+    thread_loop: ThreadLoop,
+    core: Core,
+    _context: Context,
+    _registry: Registry,
+    tracked: Bound,
+    lost: Arc<Notify>,
+}
+
+impl Session {
+    fn open(publish: &Arc<Publisher<AudioState>>) -> anyhow::Result<Self> {
+        let mut props = Properties::new();
+        props.set(keys::APP_NAME, "crownbar".into());
+
+        let thread_loop = ThreadLoop::new(&props).context("could not create a pipewire loop")?;
+        let context = Context::new(thread_loop.main_loop(), Properties::new())?;
+        let core = context.connect(None)?;
+        let registry = core.registry()?;
+
+        let lost = Arc::new(Notify::new());
+        core.proxy().add_listener(ProxyEvents {
+            error: some_closure!([^(lost)] _seq, _res, _message, {
+                lost.notify_one();
+            }),
+            ..Default::default()
+        });
+
+        let tracked = Bound::default();
+        publish.edit(|state| {
+            *state = AudioState {
+                availability: Availability::Ready,
+                ..AudioState::default()
+            };
+            true
+        });
+        watch(&registry, &tracked, publish);
+        thread_loop.run();
+
+        Ok(Self {
+            thread_loop,
+            core,
+            _context: context,
+            _registry: registry,
+            tracked,
+            lost,
+        })
+    }
+
+    fn serve(
+        &self,
+        commands: &mut Commands<AudioCommand>,
+        runtime: &Handle,
+        publish: &Publisher<AudioState>,
+    ) -> Ended {
+        loop {
+            let next = runtime.block_on(async {
+                tokio::select! {
+                    command = commands.recv() => command.ok_or(Ended::BarGone),
+                    () = self.lost.notified() => Err(Ended::Lost),
+                }
+            });
+            let mut command = match next {
+                Ok(command) => command,
+                Err(ended) => return ended,
+            };
+            let _guard = self.thread_loop.lock();
+            while let Ok(next) = commands.try_recv() {
+                if !next.supersedes(&command) {
+                    apply(command, &self.tracked, publish);
+                }
+                command = next;
+            }
+            apply(command, &self.tracked, publish);
+        }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.thread_loop.quit();
+        self.core.disconnect();
+        // A card's route listener holds `tracked`, so the cards would keep
+        // each other alive past the connection.
+        *self.tracked.lock().unwrap_or_else(|e| e.into_inner()) = Tracked::default();
+    }
 }
 
 fn fail(publish: &Publisher<AudioState>, reason: impl ToString) {
@@ -295,10 +380,10 @@ fn apply(command: AudioCommand, tracked: &Bound, publish: &Publisher<AudioState>
         AudioCommand::SetNodeVolume { id, level } => (Some(id), PropsUpdate::gain(level)),
         AudioCommand::SetNodeMuted { id, muted } => (Some(id), PropsUpdate::mute(muted)),
         AudioCommand::SetDefaultOutput(name) => {
-            return set_default(tracked, DEFAULT_SINK_KEY, &name);
+            return set_default(tracked, CONFIGURED_SINK_KEY, &name);
         }
         AudioCommand::SetDefaultInput(name) => {
-            return set_default(tracked, DEFAULT_SOURCE_KEY, &name);
+            return set_default(tracked, CONFIGURED_SOURCE_KEY, &name);
         }
     };
 

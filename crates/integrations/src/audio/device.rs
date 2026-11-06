@@ -19,6 +19,11 @@ pub struct Volume {
 }
 
 impl Volume {
+    /// What a slider shows: nothing while muted, so the knob says what is heard.
+    pub fn audible_level(self) -> f32 {
+        if self.muted { 0.0 } else { self.level }
+    }
+
     pub fn from_gain(gain: f32, muted: bool) -> Self {
         Self {
             level: gain.max(0.0).cbrt().clamp(0.0, MAX_LEVEL),
@@ -210,6 +215,13 @@ impl Stream {
         }
     }
 
+    /// A level meter — pavucontrol's, a visualiser's — records a monitor. It
+    /// is no one's microphone and has no volume worth a slider. Only the full
+    /// property set says so; the registry's summary does not.
+    pub fn is_level_meter(props: &Properties) -> bool {
+        props.get("stream.monitor") == Some("true")
+    }
+
     /// Re-read from the full property set that arrives with the node's `info`
     /// event. The registry global carries only a summary.
     pub fn describe(&mut self, props: &Properties) -> bool {
@@ -293,6 +305,14 @@ mod tests {
         let camera = props("Video/Source", "v4l2_input.pci-0000_00_14.0-usb-0_1_1.0");
         assert_eq!(Role::classify(&camera), Some(Role::Camera));
         assert_eq!(Role::classify(&props("Video/Source", "xdpw_cast")), None);
+    }
+
+    #[test]
+    fn level_meters_are_told_from_streams() {
+        let mut meter = props("Stream/Input/Audio", "pavucontrol");
+        assert!(!Stream::is_level_meter(&meter));
+        meter.set("stream.monitor", "true".into());
+        assert!(Stream::is_level_meter(&meter));
     }
 
     #[test]
