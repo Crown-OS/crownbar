@@ -125,7 +125,8 @@ fn shape_key(index: usize, row: &Row) -> u64 {
             .hash(&mut hasher),
         // A plugin's tree is drawn once per revision; a new one is a new row.
         Row::Remote(surface) => surface.version(Part::Popup).hash(&mut hasher),
-        Row::Slider { .. } | Row::Separator | Row::Readout { .. } | Row::Calendar(_) => {}
+        Row::Slider { muted, .. } => muted.is_some().hash(&mut hasher),
+        Row::Separator | Row::Readout { .. } | Row::Calendar(_) => {}
     }
     hasher.finish()
 }
@@ -136,7 +137,7 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
     match current {
         Row::Separator => panel_separator().boxed(),
         Row::Header(header) => header_view(cx, bar, row, header),
-        Row::Slider { value, .. } => slider(cx, bar, row, value),
+        Row::Slider { value, muted, .. } => slider(cx, bar, row, value, muted.is_some()),
         Row::Section { title, chevron } => {
             let section = panel_section(title);
             if chevron {
@@ -283,7 +284,7 @@ fn header_button(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
 
 /// A continuous value. The knob follows the pointer at once; what the
 /// service reads back glides it the rest of the way.
-fn slider(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, value: f32) -> AnyView {
+fn slider(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, value: f32, mutable: bool) -> AnyView {
     let shown = cx.signal(value.clamp(0.0, 1.0));
     let sent = cx.signal(value.clamp(0.0, 1.0));
     cx.effect(move |runtime| {
@@ -304,10 +305,19 @@ fn slider(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, value: f32) -> AnyView {
         }
     };
     let glyph = move |tint: Memo<Color>| {
-        glyph(bar, row, tint, PLAIN_GLYPH, |row| match row {
-            Row::Slider { icon, .. } => *icon,
-            _ => Icon::None,
-        })
+        let face = slider_glyph(bar, row, tint);
+        if !mutable {
+            return face;
+        }
+        hstack(face)
+            .cursor(CursorIcon::Pointer)
+            .role(Role::Button)
+            .label("Mute")
+            .on_click(move |cx, event| {
+                event.stop_propagation();
+                activate(cx, bar, row);
+            })
+            .boxed()
     };
     panel_slider("Level", shown)
         .glyph(glyph)
@@ -317,6 +327,26 @@ fn slider(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, value: f32) -> AnyView {
         .on_wheel(move |cx, _| slide(cx, true))
         .on_key_down(move |cx, _| slide(cx, true))
         .boxed()
+}
+
+/// A slider's icon, dimmed while what it controls is muted.
+fn slider_glyph(bar: Bar, row: Signal<PanelRow>, tint: Memo<Color>) -> AnyView {
+    canvas(move |runtime, size, list| {
+        let (icon, muted) = row.with(runtime, |row| match row.row {
+            Row::Slider { icon, muted, .. } => (icon, muted == Some(true)),
+            _ => (Icon::None, false),
+        });
+        let palette = bar.palette.get(runtime);
+        let color = if muted {
+            palette.fg_dim
+        } else {
+            tint.get(runtime)
+        };
+        let bounds = Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height));
+        icons::draw_in(&mut Scene::new(list), icon, bounds, color, &palette);
+    })
+    .size(PLAIN_GLYPH)
+    .boxed()
 }
 
 fn item_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {

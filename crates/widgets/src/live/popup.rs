@@ -39,6 +39,7 @@ pub fn panel(activity: &Activity, now: Instant) -> (PopupSpec, Vec<Option<Target
                     pulse: 0.0,
                 },
                 value: progress.at(now),
+                muted: None,
             },
             Target::Seek,
         );

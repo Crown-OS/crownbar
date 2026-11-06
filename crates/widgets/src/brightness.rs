@@ -99,6 +99,7 @@ impl BarWidget for BrightnessWidget {
                 Row::Slider {
                     icon: Icon::Rune(Rune::Sun),
                     value: display.level,
+                    muted: None,
                 },
                 Target::Display(display.id.clone()),
             );
@@ -118,6 +119,7 @@ impl BarWidget for BrightnessWidget {
                 Row::Slider {
                     icon: Icon::Rune(Rune::Moon),
                     value: night.warmth(),
+                    muted: None,
                 },
                 Target::NightLight,
             );

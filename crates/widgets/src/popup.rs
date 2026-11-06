@@ -28,6 +28,9 @@ pub enum Row {
     Slider {
         icon: Icon,
         value: f32,
+        /// `Some` makes the icon a mute button, dimmed while `Some(true)`.
+        /// Pressing it activates the row.
+        muted: Option<bool>,
     },
     /// Small muted heading above a group ("Output", "Known Networks").
     Section {
