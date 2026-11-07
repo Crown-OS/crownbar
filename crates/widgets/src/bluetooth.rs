@@ -231,6 +231,7 @@ fn rune_for(kind: DeviceKind) -> Rune {
         DeviceKind::Headphones | DeviceKind::Headset => Rune::Headphones,
         DeviceKind::Speaker => Rune::Speaker,
         DeviceKind::Keyboard | DeviceKind::Mouse => Rune::Keyboard,
+        DeviceKind::Gamepad => Rune::Gamepad,
         DeviceKind::Phone => Rune::Phone,
         DeviceKind::Computer => Rune::Laptop,
         DeviceKind::Display => Rune::Display,

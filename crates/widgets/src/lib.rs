@@ -116,6 +116,7 @@ pub enum Rune {
     Laptop,
     Display,
     Keyboard,
+    Gamepad,
     Phone,
     Microphone,
     Sun,

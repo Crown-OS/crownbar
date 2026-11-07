@@ -51,6 +51,7 @@ const HEADPHONES: &str = "M3.75 15.75V12a8.25 8.25 0 0 1 16.5 0v3.75M7.5 13.5H6a
 const SPEAKER: &str = "M6.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-15a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 4.5v15a2.25 2.25 0 0 0 2.25 2.25ZM15.75 14.25a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM12 6.75h.008v.008H12V6.75Z";
 const LAPTOP: &str = "M4.5 16.5V6.75A2.25 2.25 0 0 1 6.75 4.5h10.5a2.25 2.25 0 0 1 2.25 2.25v9.75m-17.25 0h19.5v.75a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25v-.75Z";
 const KEYBOARD: &str = "M3.75 18.75h16.5a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H3.75A2.25 2.25 0 0 0 1.5 7.5v9a2.25 2.25 0 0 0 2.25 2.25ZM6 9.75h.008v.008H6V9.75Zm4 0h.008v.008H10V9.75Zm4 0h.008v.008H14V9.75Zm4 0h.008v.008H18V9.75ZM7.5 14.25h9";
+const GAMEPAD: &str = "M6.75 6.75h10.5a4.5 4.5 0 0 1 4.5 4.5v4.5a2.25 2.25 0 0 1-2.25 2.25L16.5 15h-9l-3 3a2.25 2.25 0 0 1-2.25-2.25v-4.5a4.5 4.5 0 0 1 4.5-4.5ZM6 11.25h3m-1.5-1.5v3m8.25-.75h.008v.008h-.008V12Zm1.5-1.5h.008v.008h-.008V10.5Z";
 const STOPWATCH: &str = "M12 6a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15Zm0 0V3m-2.25 0h4.5M12 13.5l2.25-2.25m3.75-4.5 1.5-1.5";
 const BLUETOOTH: &str = "m6.75 7.5 10.5 9-5.25 4.5V3l5.25 4.5-10.5 9";
 /// One dial for every power profile, its needle swung from low to high.
@@ -66,6 +67,7 @@ fn svg(rune: Rune) -> &'static str {
         Rune::Laptop => LAPTOP,
         Rune::Display => DISPLAY,
         Rune::Keyboard => KEYBOARD,
+        Rune::Gamepad => GAMEPAD,
         Rune::Phone => PHONE,
         Rune::Microphone => MICROPHONE,
         Rune::Sun => SUN,
@@ -111,6 +113,7 @@ fn glyph_for(rune: Rune) -> &'static Glyph {
         Laptop,
         Display,
         Keyboard,
+        Gamepad,
         Phone,
         Microphone,
         Sun,
@@ -158,12 +161,13 @@ mod tests {
 
     use super::*;
 
-    const ALL: [Rune; 27] = [
+    const ALL: [Rune; 29] = [
         Rune::Headphones,
         Rune::Speaker,
         Rune::Laptop,
         Rune::Display,
         Rune::Keyboard,
+        Rune::Gamepad,
         Rune::Phone,
         Rune::Microphone,
         Rune::Sun,
@@ -186,6 +190,7 @@ mod tests {
         Rune::XCircle,
         Rune::HandRaised,
         Rune::VideoCamera,
+        Rune::Refresh,
     ];
 
     #[test]

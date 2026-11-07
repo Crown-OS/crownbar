@@ -15,6 +15,7 @@ pub enum DeviceKind {
     Speaker,
     Keyboard,
     Mouse,
+    Gamepad,
     Phone,
     Computer,
     Display,
@@ -28,6 +29,15 @@ const MAJOR_MASK: u32 = 0x1f;
 /// Minor class, bits 2..8.
 const MINOR_SHIFT: u32 = 2;
 const MINOR_MASK: u32 = 0x3f;
+/// Peripheral minor class: bits 2..6 name the device, above the keyboard and
+/// pointer bits.
+const PERIPHERAL_TYPE_MASK: u32 = 0x0f;
+const PERIPHERAL_JOYSTICK: u32 = 0x01;
+const PERIPHERAL_GAMEPAD: u32 = 0x02;
+
+const APPEARANCE_MOUSE: u16 = 0x03c2;
+const APPEARANCE_JOYSTICK: u16 = 0x03c3;
+const APPEARANCE_GAMEPAD: u16 = 0x03c4;
 
 impl DeviceKind {
     /// BlueZ's `Icon` first — it has already done this work — then the class
@@ -49,7 +59,8 @@ fn from_icon(icon: &str) -> Option<DeviceKind> {
         "audio-headset" => DeviceKind::Headset,
         "audio-card" | "audio-speakers" => DeviceKind::Speaker,
         "input-keyboard" => DeviceKind::Keyboard,
-        "input-mouse" | "input-tablet" | "input-gaming" => DeviceKind::Mouse,
+        "input-mouse" | "input-tablet" => DeviceKind::Mouse,
+        "input-gaming" => DeviceKind::Gamepad,
         "phone" => DeviceKind::Phone,
         "computer" => DeviceKind::Computer,
         "video-display" | "tv" => DeviceKind::Display,
@@ -68,6 +79,14 @@ fn from_class(class: u32) -> Option<DeviceKind> {
         (0x04, 0x06) => DeviceKind::Headphones,
         (0x04, 0x05 | 0x07 | 0x08) => DeviceKind::Speaker,
         (0x04, 0x0a..=0x0c) => DeviceKind::Display,
+        (0x05, minor)
+            if matches!(
+                minor & PERIPHERAL_TYPE_MASK,
+                PERIPHERAL_JOYSTICK | PERIPHERAL_GAMEPAD
+            ) =>
+        {
+            DeviceKind::Gamepad
+        }
         (0x05, 0x10..=0x1f) => DeviceKind::Keyboard,
         (0x05, 0x20..=0x2f) => DeviceKind::Mouse,
         _ => return None,
@@ -76,6 +95,14 @@ fn from_class(class: u32) -> Option<DeviceKind> {
 
 /// GAP appearance values, whose high 10 bits are the category.
 fn from_appearance(appearance: u16) -> Option<DeviceKind> {
+    Some(match appearance {
+        APPEARANCE_JOYSTICK | APPEARANCE_GAMEPAD => DeviceKind::Gamepad,
+        APPEARANCE_MOUSE => DeviceKind::Mouse,
+        _ => from_appearance_category(appearance)?,
+    })
+}
+
+fn from_appearance_category(appearance: u16) -> Option<DeviceKind> {
     Some(match appearance >> 6 {
         0x01 => DeviceKind::Phone,
         0x02 => DeviceKind::Computer,
@@ -137,5 +164,57 @@ impl BtDevice {
             .unwrap_or_else(|| address.to_string());
         device.kind = DeviceKind::classify(icon.as_deref(), class, appearance);
         device
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bluez_gaming_icon_is_a_gamepad() {
+        assert_eq!(
+            DeviceKind::classify(Some("input-gaming"), None, None),
+            DeviceKind::Gamepad
+        );
+    }
+
+    #[test]
+    fn peripheral_gamepad_and_joystick_classes_are_gamepads() {
+        let gamepad = (0x05 << MAJOR_SHIFT) | (0x02 << MINOR_SHIFT);
+        let joystick = (0x05 << MAJOR_SHIFT) | (0x01 << MINOR_SHIFT);
+        assert_eq!(
+            DeviceKind::classify(None, Some(gamepad), None),
+            DeviceKind::Gamepad
+        );
+        assert_eq!(
+            DeviceKind::classify(None, Some(joystick), None),
+            DeviceKind::Gamepad
+        );
+    }
+
+    #[test]
+    fn pointer_class_stays_a_mouse() {
+        let mouse = (0x05 << MAJOR_SHIFT) | (0x20 << MINOR_SHIFT);
+        assert_eq!(
+            DeviceKind::classify(None, Some(mouse), None),
+            DeviceKind::Mouse
+        );
+    }
+
+    #[test]
+    fn hid_appearances_split_by_subcategory() {
+        assert_eq!(
+            DeviceKind::classify(None, None, Some(APPEARANCE_GAMEPAD)),
+            DeviceKind::Gamepad
+        );
+        assert_eq!(
+            DeviceKind::classify(None, None, Some(APPEARANCE_MOUSE)),
+            DeviceKind::Mouse
+        );
+        assert_eq!(
+            DeviceKind::classify(None, None, Some(0x03c1)),
+            DeviceKind::Keyboard
+        );
     }
 }
