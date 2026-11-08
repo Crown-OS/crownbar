@@ -67,7 +67,7 @@ pub struct Joined {
 }
 
 /// Personal Hotspot. NetworkManager can do this — an AP-mode profile with
-/// shared IPv4 — but owning it belongs to crownconnect, so the surface is here
+/// shared IPv4 — but owning it belongs to crownlink, so the surface is here
 /// and the body is not.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum HotspotState {
