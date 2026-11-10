@@ -8,9 +8,8 @@ use crownui::prelude::Color;
 use kurbo::{Arc, Cap, Circle, Rect, Stroke, Vec2};
 
 use crownbar_integrations::live::Glyph;
-use crownbar_widgets::Rune;
 
-use super::{caffeine, fade, lerp, rune};
+use super::{art::Art, fade, lerp, untitled::*};
 
 const RING_STROKE: f64 = 1.5;
 const RING_TRACK_ALPHA: f32 = 0.28;
@@ -19,24 +18,30 @@ const RINGED_GLYPH: f64 = 0.56;
 /// How much of the box the glyph takes with no ring.
 const BARE_GLYPH: f64 = 0.82;
 const HALO_ALPHA: f32 = 0.45;
+/// The glyph's view box fills whatever share of the box it is given.
+const GLYPH_FILL: f64 = 1.0;
 
-fn rune_for(glyph: Glyph) -> Option<Rune> {
-    Some(match glyph {
-        Glyph::Sparkles => Rune::Sparkles,
-        Glyph::Stopwatch => Rune::Stopwatch,
-        Glyph::Timer => Rune::Clock,
-        Glyph::Music => Rune::MusicalNote,
-        Glyph::Terminal => Rune::CommandLine,
-        Glyph::Download => Rune::ArrowDownTray,
-        Glyph::Check => Rune::CheckCircle,
-        Glyph::Cross => Rune::XCircle,
-        Glyph::Alert => Rune::Warning,
-        Glyph::Hand => Rune::HandRaised,
-        Glyph::Microphone => Rune::Microphone,
-        Glyph::Camera => Rune::VideoCamera,
-        Glyph::Screen => Rune::Display,
-        Glyph::Coffee => return None,
-    })
+fn art(glyph: Glyph) -> &'static Art {
+    match glyph {
+        Glyph::Sparkles => &MAGIC_WAND_02,
+        Glyph::Stopwatch => &CLOCK_STOPWATCH,
+        Glyph::Timer => &HOURGLASS_01,
+        Glyph::Music => &MUSIC_NOTE_01,
+        Glyph::Terminal => &TERMINAL_SQUARE,
+        Glyph::Download => &ARROW_SQUARE_DOWN,
+        Glyph::Check => &CHECK_CIRCLE,
+        Glyph::Cross => &X_CIRCLE,
+        Glyph::Alert => &ALERT_TRIANGLE,
+        Glyph::Hand => &MESSAGE_QUESTION_SQUARE,
+        Glyph::Microphone => &MICROPHONE_02,
+        Glyph::Camera => &VIDEO_RECORDER,
+        Glyph::Screen => &MONITOR_01,
+        Glyph::Coffee => &COFFEE,
+        Glyph::Call => &PHONE_CALL_01,
+        Glyph::Webcam => &WEBCAM_01,
+        Glyph::Mirror => &PHONE_01,
+        Glyph::ExternalDisplay => &MONITOR_05,
+    }
 }
 
 fn centred(b: Rect, share: f64) -> Rect {
@@ -73,11 +78,7 @@ pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, look: Look) {
         }
         None => BARE_GLYPH,
     };
-    let inner = centred(b, share);
-    match rune_for(look.glyph) {
-        Some(glyph) => rune::draw(scene, inner, look.fg, glyph),
-        None => caffeine::draw(scene, inner, look.fg, 1.0),
-    }
+    art(look.glyph).draw(scene, centred(b, share), look.fg, GLYPH_FILL);
 }
 
 fn ring(scene: &mut Scene<'_>, centre: kurbo::Point, radius: f64, progress: f32, fg: Color) {
@@ -101,4 +102,51 @@ fn ring(scene: &mut Scene<'_>, centre: kurbo::Point, radius: f64, progress: f32,
         0.0,
     );
     scene.stroke(&stroke, identity, fg, None, &sweep);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::icons::tests::{BOX, INK, commands_drawn};
+
+    const ALL: [Glyph; 18] = [
+        Glyph::Sparkles,
+        Glyph::Stopwatch,
+        Glyph::Timer,
+        Glyph::Music,
+        Glyph::Terminal,
+        Glyph::Download,
+        Glyph::Check,
+        Glyph::Cross,
+        Glyph::Alert,
+        Glyph::Hand,
+        Glyph::Microphone,
+        Glyph::Camera,
+        Glyph::Screen,
+        Glyph::Coffee,
+        Glyph::Call,
+        Glyph::Webcam,
+        Glyph::Mirror,
+        Glyph::ExternalDisplay,
+    ];
+
+    #[test]
+    fn every_glyph_draws_ringed_or_bare() {
+        for glyph in ALL {
+            assert!(!art(glyph).glyph().is_empty(), "{glyph:?} has no ink");
+            for progress in [None, Some(0.5)] {
+                let look = Look {
+                    glyph,
+                    progress,
+                    pulse: 0.0,
+                    fg: INK,
+                    accent: INK,
+                };
+                assert!(
+                    commands_drawn(|scene| draw(scene, BOX, look)) > 0,
+                    "{glyph:?} drew nothing"
+                );
+            }
+        }
+    }
 }

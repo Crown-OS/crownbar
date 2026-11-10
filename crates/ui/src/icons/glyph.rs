@@ -1,7 +1,7 @@
 //! SVG-authored icon geometry. A glyph is parsed and measured once, then
 //! traced to any progress along its own length so an icon can draw itself on.
 
-use kurbo::{Affine, BezPath, ParamCurve, ParamCurveArclen, Point, Rect, Shape};
+use kurbo::{Affine, BezPath, ParamCurve, ParamCurveArclen, Point, Rect};
 
 const ARCLEN_ACCURACY: f64 = 0.01;
 
@@ -10,7 +10,6 @@ pub(super) struct Glyph {
     /// Arclength of each segment of `path`, in author units.
     lens: Vec<f64>,
     total: f64,
-    ink: Rect,
 }
 
 impl Glyph {
@@ -22,7 +21,6 @@ impl Glyph {
             .collect();
         Self {
             total: lens.iter().sum(),
-            ink: path.bounding_box(),
             path,
             lens,
         }
@@ -30,10 +28,6 @@ impl Glyph {
 
     pub(super) fn path(&self) -> &BezPath {
         &self.path
-    }
-
-    pub(super) fn ink(&self) -> Rect {
-        self.ink
     }
 
     pub(super) fn is_empty(&self) -> bool {

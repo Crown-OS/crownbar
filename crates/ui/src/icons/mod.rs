@@ -1,11 +1,14 @@
-//! Procedural icon rendering. Each icon is sized to a 16 × 16 logical box;
-//! the renderer hands us a center point and the box width, we draw vectors
-//! into a canvas's draw list through [`Scene`].
+//! Procedural icon rendering. Each icon is drawn into a square box — the bar's
+//! [`ICON_BOX`], or whatever size a panel asks for; the renderer hands us a
+//! center point and the box width, we draw vectors into a canvas's draw list
+//! through [`Scene`]. Glyphs are Untitled UI's (see [`art`]), except the
+//! weather, battery, signal and numerals, which are drawn to their own rules.
 //!
 //! Several icons accept smoothly-interpolated state floats (∈ [0, 1]) so the
 //! widget can spring a value between two extremes (e.g. tiled ↔ floating,
 //! battery normal ↔ battery saver) and the icon morphs continuously.
 
+mod art;
 mod battery;
 mod bluetooth;
 mod brightness;
@@ -19,6 +22,7 @@ mod numerals;
 mod rune;
 mod screenshare;
 mod signal;
+mod untitled;
 mod volume;
 mod weather;
 mod wifi;
@@ -132,4 +136,21 @@ pub(super) fn fade(c: Color, alpha: f32) -> Color {
 
 pub(super) fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t.clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use crownui::{ext::DrawList, prelude::BLACK};
+
+    use super::*;
+
+    pub(in crate::icons) const BOX: Rect = Rect::new(0.0, 0.0, 22.0, 22.0);
+    pub(in crate::icons) const INK: Color = BLACK;
+
+    /// How many commands `draw` records.
+    pub(in crate::icons) fn commands_drawn(draw: impl FnOnce(&mut Scene<'_>)) -> usize {
+        let mut list = DrawList::new();
+        draw(&mut Scene::new(&mut list));
+        list.commands().len()
+    }
 }

@@ -1,69 +1,50 @@
-//! Wi-Fi rune: a dot plus three arcs (Lucide geometry). The arcs light by link
-//! quality when associated, run an outward sweep while searching, and a slash
-//! draws itself on when the radio is blocked. Once a cable carries the
-//! traffic the whole rune cross-fades to an Ethernet port.
-
-use std::sync::OnceLock;
+//! Wi-Fi rune: Untitled's wedge under two arcs. The arcs light by link quality
+//! when associated, run an outward sweep while searching, and a slash draws
+//! itself on when the radio is blocked. Once a cable carries the traffic the
+//! whole rune cross-fades to an Ethernet port.
 
 use crate::scene::Scene;
 use crownui::prelude::Color;
-use kurbo::{Rect, Stroke};
+use kurbo::Rect;
 
 use crownbar_widgets::WifiState;
 
 use super::{
-    ethernet, fade,
-    glyph::{self, Glyph},
-    lerp,
+    art::{self, Art},
+    ethernet, fade, lerp,
 };
 
-const DOT_SVG: &str = "M12 20h.01";
-const ARC_SVG: [&str; 3] = [
-    "M8.5 16.429a5 5 0 0 1 7 0",
-    "M5 12.859a10 10 0 0 1 14 0",
-    "M2 8.82a15 15 0 0 1 20 0",
+/// Inner to outer, each drawn left to right so a trace sweeps across.
+pub(super) const ARCS: [&str; 2] = [
+    "M4.65 11.15C7.7 8.64998 12.3 8.64998 15.35 11.15",
+    "M1 7.34998C6.1 3.01668 13.9 3.01668 19 7.34998",
 ];
-const SLASH_SVG: &str = "M4.5 19.5 L19.5 4.5";
+pub(super) const WEDGE: &str =
+    "M9.05 14.8C9.68333 14.4333 10.3167 14.4333 10.95 14.8L10 15.75L9.05 14.8Z";
+/// Untitled draws this one heavier than the rest of the set.
+pub(super) const WEIGHT: f64 = 2.5;
+const SLASH: &str = "M2.5 17.5L17.5 2.5";
 
-const INK_FILL: f64 = 0.92;
-const STROKE_PX: f64 = 2.0;
-const DOT_PX: f64 = 2.0;
+static WEDGE_ART: Art = Art::weighted(&[WEDGE], WEIGHT);
+static ARC_ART: [Art; 2] = [
+    Art::weighted(&[ARCS[0]], WEIGHT),
+    Art::weighted(&[ARCS[1]], WEIGHT),
+];
+static SLASH_ART: Art = Art::weighted(&[SLASH], WEIGHT);
+
 const MIN_ALPHA: f32 = 0.01;
 
 /// Link quality at which each arc starts lighting, and the span it takes to
 /// reach full brightness.
-const ARC_LIT_AT: [f32; 3] = [0.15, 0.45, 0.75];
+const ARC_LIT_AT: [f32; 2] = [0.2, 0.55];
 const ARC_LIT_SPAN: f32 = 0.3;
 
 /// Sweep shape: per-arc delay into the cycle, each arc's own window, and the
 /// share of that window spent drawing on (the rest fades out).
-const SWEEP_STAGGER: f32 = 0.16;
-const SWEEP_SPAN: f32 = 0.55;
+const SWEEP_STAGGER: f32 = 0.22;
+const SWEEP_SPAN: f32 = 0.6;
 const SWEEP_RISE: f32 = 0.42;
-const SWEEP_DOT_ALPHA: f32 = 0.6;
-
-struct Rune {
-    dot: Glyph,
-    arcs: [Glyph; 3],
-    slash: Glyph,
-    /// Union of dot + arcs, so the slash can overhang without shifting the fit.
-    ink: Rect,
-}
-
-fn rune() -> &'static Rune {
-    static CACHE: OnceLock<Rune> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let dot = Glyph::parse(DOT_SVG);
-        let arcs = ARC_SVG.map(Glyph::parse);
-        let ink = arcs.iter().fold(dot.ink(), |acc, arc| acc.union(arc.ink()));
-        Rune {
-            dot,
-            arcs,
-            slash: Glyph::parse(SLASH_SVG),
-            ink,
-        }
-    })
-}
+const SWEEP_WEDGE_ALPHA: f32 = 0.6;
 
 pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) {
     let wired = state.wired.clamp(0.0, 1.0);
@@ -76,8 +57,8 @@ pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) 
 }
 
 fn draw_radio(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) {
-    let rune = rune();
-    if rune.dot.is_empty() || rune.arcs.iter().any(Glyph::is_empty) {
+    let wedge = WEDGE_ART.glyph();
+    if wedge.is_empty() || ARC_ART.iter().any(|arc| arc.glyph().is_empty()) {
         return;
     }
 
@@ -86,28 +67,27 @@ fn draw_radio(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) {
     let searching = state.searching.clamp(0.0, 1.0);
     let live = 1.0 - off;
 
-    let (transform, scale) = glyph::fit(rune.ink, b, INK_FILL);
-    let stroke = Stroke::new(STROKE_PX / scale);
-    let dot_stroke = Stroke::new(DOT_PX / scale);
+    let transform = art::place(b);
+    let pen = WEDGE_ART.pen();
 
     // Track: the whole rune, dim, so the icon keeps its silhouette.
     let track = fade(fg, lerp(0.20, 0.12, off));
-    scene.stroke(&dot_stroke, transform, track, None, rune.dot.path());
-    for arc in &rune.arcs {
-        scene.stroke(&stroke, transform, track, None, arc.path());
+    scene.stroke(&pen, transform, track, None, wedge.path());
+    for arc in &ARC_ART {
+        scene.stroke(&pen, transform, track, None, arc.glyph().path());
     }
 
-    // Dot: the device itself — lit whenever the radio is up.
-    let dot = lerp(
+    // Wedge: the device itself — lit whenever the radio is up.
+    let wedge_alpha = lerp(
         (strength * 3.0).clamp(0.0, 1.0).max(0.35),
-        SWEEP_DOT_ALPHA,
+        SWEEP_WEDGE_ALPHA,
         searching,
     ) * live;
-    if dot > MIN_ALPHA {
-        scene.stroke(&dot_stroke, transform, fade(fg, dot), None, rune.dot.path());
+    if wedge_alpha > MIN_ALPHA {
+        scene.stroke(&pen, transform, fade(fg, wedge_alpha), None, wedge.path());
     }
 
-    for (i, arc) in rune.arcs.iter().enumerate() {
+    for (i, arc) in ARC_ART.iter().enumerate() {
         let lit = ((strength - ARC_LIT_AT[i]) / ARC_LIT_SPAN).clamp(0.0, 1.0);
         let (sweep_trace, sweep_alpha) = sweep(state.phase, i);
         let alpha = lerp(lit, sweep_alpha, searching) * live;
@@ -116,19 +96,19 @@ fn draw_radio(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) {
             continue;
         }
         let color = fade(fg, alpha);
+        let arc = arc.glyph();
         if trace >= 1.0 {
-            scene.stroke(&stroke, transform, color, None, arc.path());
+            scene.stroke(&pen, transform, color, None, arc.path());
         } else {
-            scene.stroke(&stroke, transform, color, None, &arc.traced(trace));
+            scene.stroke(&pen, transform, color, None, &arc.traced(trace));
         }
     }
 
-    if off > MIN_ALPHA {
-        if off >= 1.0 {
-            scene.stroke(&stroke, transform, fg, None, rune.slash.path());
-        } else {
-            scene.stroke(&stroke, transform, fg, None, &rune.slash.traced(off));
-        }
+    let slash = SLASH_ART.glyph();
+    if off >= 1.0 {
+        scene.stroke(&pen, transform, fg, None, slash.path());
+    } else if off > MIN_ALPHA {
+        scene.stroke(&pen, transform, fg, None, &slash.traced(off));
     }
 }
 
@@ -146,4 +126,64 @@ fn sweep(phase: f32, arc: usize) -> (f32, f32) {
         1.0 - (s - SWEEP_RISE) / (1.0 - SWEEP_RISE)
     };
     ((s / SWEEP_RISE).min(1.0), alpha)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::icons::{
+        art::tests::assert_fits,
+        tests::{BOX, INK, commands_drawn},
+    };
+
+    const POSES: [WifiState; 4] = [
+        WifiState {
+            strength: 1.0,
+            off: 0.0,
+            searching: 0.0,
+            phase: 0.0,
+            wired: 0.0,
+        },
+        WifiState {
+            strength: 0.0,
+            off: 1.0,
+            searching: 0.0,
+            phase: 0.0,
+            wired: 0.0,
+        },
+        WifiState {
+            strength: 0.0,
+            off: 0.0,
+            searching: 1.0,
+            phase: 0.5,
+            wired: 0.0,
+        },
+        WifiState {
+            strength: 0.0,
+            off: 0.0,
+            searching: 0.0,
+            phase: 0.0,
+            wired: 1.0,
+        },
+    ];
+
+    #[test]
+    fn every_piece_fits_the_view_box() {
+        assert_fits(&WEDGE_ART, "wifi wedge");
+        assert_fits(&ARC_ART[0], "wifi inner arc");
+        assert_fits(&ARC_ART[1], "wifi outer arc");
+        assert_fits(&SLASH_ART, "wifi slash");
+    }
+
+    #[test]
+    fn every_pose_draws() {
+        for state in POSES {
+            assert!(commands_drawn(|scene| draw(scene, BOX, INK, state)) > 0);
+        }
+    }
+
+    #[test]
+    fn a_full_link_lights_both_arcs() {
+        assert!(ARC_LIT_AT.iter().all(|at| at + ARC_LIT_SPAN <= 1.0));
+    }
 }

@@ -19,6 +19,10 @@ pub enum Glyph {
     Camera,
     Screen,
     Coffee,
+    Call,
+    Webcam,
+    Mirror,
+    ExternalDisplay,
 }
 
 /// The hue a chip is tinted with. The bar resolves it against its palette.

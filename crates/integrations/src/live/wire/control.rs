@@ -15,6 +15,7 @@ pub enum Control {
     MuteMic,
     Stop,
     Dismiss,
+    HangUp,
 }
 
 impl Control {
@@ -32,6 +33,7 @@ impl Control {
             Self::MuteMic => "Mute Microphone",
             Self::Stop => "Stop",
             Self::Dismiss => "Dismiss",
+            Self::HangUp => "Hang Up",
         }
     }
 }

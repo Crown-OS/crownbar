@@ -81,7 +81,9 @@ pub fn row(action: PopupAction) -> usize {
 /// takes its panel with it.
 pub fn after(control: Control) -> AfterAction {
     match control {
-        Control::Cancel | Control::Dismiss | Control::Reset | Control::Stop => AfterAction::Close,
+        Control::Cancel | Control::Dismiss | Control::Reset | Control::Stop | Control::HangUp => {
+            AfterAction::Close
+        }
         _ => AfterAction::Stay,
     }
 }

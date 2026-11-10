@@ -84,8 +84,8 @@ pub enum Icon {
         blend: f32,
         night: f32,
     },
-    /// A screen with a recording light: shown while something is being
-    /// shared. `pulse` ∈ [0, 1] breathes the light so it is noticed.
+    /// A screen casting: shown while something is being shared. `pulse`
+    /// ∈ [0, 1] ripples its cast mark so it is noticed.
     ScreenShare {
         pulse: f32,
     },
@@ -145,6 +145,11 @@ pub enum Rune {
     VideoCamera,
     /// Look again: rescan, refetch.
     Refresh,
+    /// What a linked phone is doing: a call, its camera as a webcam, its
+    /// screen extended onto this one.
+    PhoneCall,
+    Webcam,
+    ExternalDisplay,
 }
 
 /// Battery visual state. Everything but the readout is spring-smoothed, so a
