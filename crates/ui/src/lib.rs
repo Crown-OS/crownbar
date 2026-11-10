@@ -19,6 +19,7 @@ mod state;
 mod sync;
 pub mod theme;
 mod util;
+mod wallpaper;
 
 use crownbar_config::{BarConfig, BarSettings};
 use crownconfig::Appearance;
@@ -27,7 +28,10 @@ use crownui::{
     prelude::{Styled, View, component, zstack},
 };
 
-use crate::theme::Palette;
+use crate::{
+    backdrop::Ground,
+    theme::{Behind, Palette},
+};
 use crownbar_integrations::{Services, Wake};
 use crownbar_widgets::{Arrangement, WidgetRegistry};
 use state::{Bar, BarState};
@@ -45,16 +49,22 @@ pub fn root(
 ) -> impl View {
     component(move |cx| {
         let theme = provide_configured_theme(cx);
-        let transparency = sync::transparency(cx, &appearance);
+        let (transparency, wallpaper) = sync::appearance(cx, &appearance);
         let overrides = sync::theme_overrides(cx);
+        let config = BarConfig::new(&settings, appearance.bar_height);
+        let backdrop = sync::backdrop(cx, wallpaper, config);
+        let ground_strength = Ground::of(&config).strength_at_glyphs();
         let palette = cx.memo(move |runtime| {
             let transparency = transparency.get(runtime);
             let overrides = overrides.get(runtime);
+            let behind = backdrop.get(runtime).map(|wallpaper| Behind {
+                wallpaper,
+                ground_strength,
+            });
             theme.with(runtime, |theme| {
-                Palette::new(theme, transparency, &overrides)
+                Palette::new(theme, transparency, &overrides, behind)
             })
         });
-        let config = BarConfig::new(&settings, appearance.bar_height);
         let arrangement = Arrangement::from(&settings);
         let state = BarState {
             widgets: WidgetRegistry::arranged(&arrangement),

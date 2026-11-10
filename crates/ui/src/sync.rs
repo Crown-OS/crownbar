@@ -1,13 +1,23 @@
 //! Keeping the bar current: service snapshots as they land, the clock as it
-//! ticks, and the appearance, theme and bar settings as they are edited.
+//! ticks, the appearance, theme and bar settings as they are edited, and the
+//! wallpaper as it changes.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use crownbar_config::{BarConfig, BarSettings};
 use crownconfig::{Appearance, SectionWatch, ThemeOverrides};
-use crownui::prelude::{Cx, Signal};
+use crownui::prelude::{Cx, Signal, Size};
+use tokio::sync::watch;
 
-use crate::{frames::animate, popup, state::Bar};
+use crate::{
+    frames::animate,
+    popup,
+    state::Bar,
+    wallpaper::{self, Backdrop},
+};
 use crownbar_integrations::{Wake, caffeine};
 use crownbar_widgets::{Arrangement, WidgetRegistry};
 
@@ -66,14 +76,83 @@ fn until_next_second() -> Duration {
     Duration::from_secs(1).saturating_sub(into_second)
 }
 
-/// The panels' transparency, following `appearance.ron`.
-pub fn transparency(cx: &mut Cx, appearance: &Appearance) -> Signal<f32> {
+/// The panels' transparency and the wallpaper's path, following
+/// `appearance.ron`.
+pub fn appearance(cx: &mut Cx, appearance: &Appearance) -> (Signal<f32>, Signal<String>) {
     let transparency = cx.signal(appearance.transparency as f32);
+    let wallpaper = cx.signal(appearance.wallpaper.clone());
     let watch = crownconfig::watch_section(Appearance::SECTION, appearance.clone());
     follow(cx, watch, move |cx, appearance: Appearance| {
         transparency.set(cx, appearance.transparency as f32);
+        if wallpaper.with_untracked(cx, |path| *path != appearance.wallpaper) {
+            wallpaper.set(cx, appearance.wallpaper);
+        }
     });
-    transparency
+    (transparency, wallpaper)
+}
+
+/// A wallpaper to sample, and the output it fills.
+type SampleRequest = Option<(PathBuf, Size)>;
+
+/// The wallpaper at `path` as it lies under the bar, sampled off the UI thread
+/// again whenever it or the output changes. `None` until then, or for a
+/// wallpaper that is not a still image.
+pub fn backdrop(cx: &mut Cx, path: Signal<String>, config: BarConfig) -> Signal<Option<Backdrop>> {
+    let backdrop = cx.signal(None);
+    let output = cx.output_size();
+    let (requests, receiver) = watch::channel(None);
+    cx.effect(move |runtime| {
+        let screen = output.get(runtime);
+        let request = path.with(runtime, |path| {
+            screen
+                .filter(|_| !path.is_empty())
+                .map(|screen| (PathBuf::from(path), screen))
+        });
+        requests.send_replace(request);
+    });
+    sample_next(cx, receiver, backdrop, config);
+    backdrop
+}
+
+/// Samples the latest request, publishes it unless a newer one has already
+/// come in, and waits again.
+fn sample_next(
+    cx: &mut Cx,
+    mut requests: watch::Receiver<SampleRequest>,
+    backdrop: Signal<Option<Backdrop>>,
+    config: BarConfig,
+) {
+    let next = async move {
+        requests.changed().await.ok()?;
+        let request = requests.borrow_and_update().clone();
+        let sampled = match request {
+            Some((path, screen)) => tokio::task::spawn_blocking(move || {
+                wallpaper::sample(&path, screen, wallpaper::strip(&config, screen))
+                    .inspect_err(|error| {
+                        log::info!(
+                            "the bar's ink follows the theme: {}: {error}",
+                            path.display()
+                        )
+                    })
+                    .ok()
+            })
+            .await
+            .ok()
+            .flatten(),
+            None => None,
+        };
+        let superseded = requests.has_changed().unwrap_or(true);
+        Some((requests, sampled, superseded))
+    };
+    cx.spawn(next, move |cx, next| {
+        let Some((requests, sampled, superseded)) = next else {
+            return;
+        };
+        if !superseded {
+            backdrop.set(cx, sampled);
+        }
+        sample_next(cx, requests, backdrop, config);
+    });
 }
 
 /// `theme.ron`'s palette edits, following the file.

@@ -19,6 +19,7 @@ fn palette_for(mode: ThemeMode, accent: AccentColor) -> Palette {
         &Theme::for_mode(mode, accent),
         0.0,
         &ThemeOverrides::default(),
+        None,
     )
 }
 
@@ -56,7 +57,7 @@ fn the_panel_body_stays_translucent() {
     for mode in [ThemeMode::Dark, ThemeMode::Light] {
         for transparency in [0.0, 0.5, 1.0] {
             let theme = Theme::for_mode(mode, AccentColor::Purple);
-            let alpha = Palette::new(&theme, transparency, &ThemeOverrides::default())
+            let alpha = Palette::new(&theme, transparency, &ThemeOverrides::default(), None)
                 .glass
                 .body
                 .a;
@@ -76,7 +77,8 @@ fn the_bar_and_its_panels_share_a_body() {
     assert!(palette.pill_active.a > palette.pill_hover.a);
 }
 
-/// `theme.ron` may retint the bar's own ink, per mode, and only that mode.
+/// `theme.ron` may retint the bar's own ink, per mode: a mode's tokens tint
+/// the ink that mode draws in, and leave the other mode's ink alone.
 #[test]
 fn theme_overrides_retint_the_bar_foreground() {
     let mut overrides = ThemeOverrides::default();
@@ -85,7 +87,7 @@ fn theme_overrides_retint_the_bar_foreground() {
         .dark
         .insert("bar.fg_hover".into(), "#00ff0080".into());
     let theme = Theme::for_mode(ThemeMode::Dark, AccentColor::Purple);
-    let dark = Palette::new(&theme, 0.0, &overrides);
+    let dark = Palette::new(&theme, 0.0, &overrides, None);
     assert_eq!(dark.bar_fg, Color::new(1.0, 0.0, 0.0, 1.0));
     assert_eq!(dark.bar_fg_hover, Color::new(0.0, 1.0, 0.0, 128.0 / 255.0));
 
@@ -94,8 +96,12 @@ fn theme_overrides_retint_the_bar_foreground() {
         &Theme::for_mode(ThemeMode::Light, AccentColor::Purple),
         0.0,
         &overrides,
+        None,
     );
-    assert_eq!(light, light_overridden);
+    assert_eq!(
+        (light.bar_fg, light.bar_fg_hover),
+        (light_overridden.bar_fg, light_overridden.bar_fg_hover)
+    );
 }
 
 /// The panels' rows light up in the user's accent, not one of the bar's own.
@@ -103,7 +109,7 @@ fn theme_overrides_retint_the_bar_foreground() {
 fn panel_rows_follow_the_accent() {
     for accent in [AccentColor::Purple, AccentColor::Blue] {
         let theme = Theme::for_mode(ThemeMode::Dark, accent);
-        let palette = Palette::new(&theme, 0.0, &ThemeOverrides::default());
+        let palette = Palette::new(&theme, 0.0, &ThemeOverrides::default(), None);
         assert_eq!(palette.panel_theme.accent, theme.accent, "{accent:?}");
         assert_eq!(palette.panel_theme.popover.ring, theme.accent, "{accent:?}");
     }
@@ -115,7 +121,7 @@ fn panel_rows_follow_the_accent() {
 fn panel_sliders_match_the_settings_app() {
     for mode in [ThemeMode::Dark, ThemeMode::Light] {
         let theme = Theme::for_mode(mode, AccentColor::Blue);
-        let rows = Palette::new(&theme, 0.0, &ThemeOverrides::default()).panel_theme;
+        let rows = Palette::new(&theme, 0.0, &ThemeOverrides::default(), None).panel_theme;
         assert_eq!(rows.control, theme.control, "{mode:?}");
     }
 }

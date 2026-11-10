@@ -10,8 +10,8 @@ use crownui::{
     ext::{Kind, Listener, NodeId},
     kit::INTER_FAMILY,
     prelude::{
-        AnyView, Cx, Element, Memo, Role, Semantic, Styled, View, bind, canvas, keyed, show, text,
-        vstack,
+        AnyView, Cx, Element, Memo, Role, Semantic, Styled, Vector, View, bind, canvas, keyed,
+        show, text, vstack, zstack,
     },
 };
 use kurbo::Point;
@@ -21,7 +21,7 @@ use crate::{
     icons, popup, remote,
     scene::Scene,
     state::Bar,
-    theme::{FONT_SIZE, FONT_WEIGHT, PILL_PAD_X, PillState},
+    theme::{FONT_SIZE, FONT_WEIGHT, Ink, PILL_PAD_X, PillState, SHADOW_BLUR, SHADOW_DROP},
 };
 use crownbar_widgets::{Icon, animation::SpringProfile, bit};
 
@@ -66,6 +66,12 @@ impl Kind for PillKind {
         let active = cx.memo(move |runtime| bar.popup.owner.get(runtime) == Some(index));
         let lit = cx.memo(move |runtime| hovered.get(runtime));
         let icon = cx.memo(move |runtime| bar.read(runtime, index, |widget| widget.icon()));
+        let rect = cx.observe_rect(node);
+        let ink = cx.memo(move |runtime| {
+            let rect = rect.get(runtime);
+            let span = bar.span_of(runtime, rect);
+            bar.palette.get(runtime).inks.over(span)
+        });
 
         for listener in [
             Listener::PointerEnter(Box::new(move |cx, _| hovered.set(cx, true))),
@@ -98,9 +104,9 @@ impl Kind for PillKind {
         cx.set_children(
             node,
             (
-                glyph(bar, icon),
-                label_view(bar, icon, label, lit),
-                plugin(bar, index, lit),
+                glyph(bar, icon, ink),
+                label_view(icon, label, lit, ink),
+                plugin(bar, index, lit, ink),
             ),
         );
     }
@@ -137,7 +143,7 @@ fn press(cx: &mut Cx, bar: Bar, index: usize, node: NodeId) {
     }
 }
 
-fn glyph(bar: Bar, icon: Memo<Icon>) -> impl View {
+fn glyph(bar: Bar, icon: Memo<Icon>, ink: Memo<Ink>) -> impl View {
     keyed(
         move |runtime| match icon.get(runtime) {
             Icon::None => Glyph::None,
@@ -147,22 +153,24 @@ fn glyph(bar: Bar, icon: Memo<Icon>) -> impl View {
         move |_, kind| match kind {
             Glyph::None => nothing(),
             Glyph::Plain => canvas(move |runtime, size, list| {
-                let icon = icon.get(runtime);
+                let (icon, ink) = (icon.get(runtime), ink.get(runtime));
                 let palette = bar.palette.get(runtime);
                 let (x, y) = (size.width * 0.5, size.height * 0.5);
-                icons::draw(&mut Scene::new(list), icon, x, y, palette.bar_fg, &palette);
+                Scene::shadowed(list, ink.shadow, |scene| {
+                    icons::draw(scene, icon, x, y, ink.fg, &palette);
+                });
             })
             .w(icons::ICON_BOX)
             .h_full()
             .boxed(),
-            Glyph::Battery => battery(bar, icon),
+            Glyph::Battery => battery(bar, icon, ink),
         },
     )
     .h_full()
 }
 
 /// A plugin's pill: its tree, rebuilt only when a new revision of it lands.
-fn plugin(bar: Bar, index: usize, lit: Memo<bool>) -> impl View {
+fn plugin(bar: Bar, index: usize, lit: Memo<bool>, ink: Memo<Ink>) -> impl View {
     keyed(
         move |runtime| {
             bar.read(runtime, index, |widget| {
@@ -180,7 +188,7 @@ fn plugin(bar: Bar, index: usize, lit: Memo<bool>) -> impl View {
                         .and_then(|widget| widget.plugin_surface().cloned())
                 })
             });
-            surface.map_or_else(nothing, |surface| remote::pill(cx, bar, &surface, lit))
+            surface.map_or_else(nothing, |surface| remote::pill(cx, bar, &surface, lit, ink))
         },
     )
     .h_full()
@@ -188,53 +196,60 @@ fn plugin(bar: Bar, index: usize, lit: Memo<bool>) -> impl View {
 
 /// The battery cell, its reading drawn into it, as wide as its accessory has
 /// grown.
-fn battery(bar: Bar, icon: Memo<Icon>) -> AnyView {
+fn battery(bar: Bar, icon: Memo<Icon>, ink: Memo<Ink>) -> AnyView {
     canvas(move |runtime, size, list| {
         let Icon::Battery(battery) = icon.get(runtime) else {
             return;
         };
-        let palette = bar.palette.get(runtime);
+        let (palette, ink) = (bar.palette.get(runtime), ink.get(runtime));
         let origin = Point::new(0.0, f64::from(size.height) * 0.5);
-        icons::draw_battery(
-            &mut Scene::new(list),
-            origin,
-            battery,
-            palette.bar_fg,
-            &palette,
-        );
+        Scene::shadowed(list, ink.shadow, |scene| {
+            icons::draw_battery(scene, origin, battery, ink.fg, &palette);
+        });
     })
     .h_full()
     .w(bind(move |runtime| icons::advance(icon.get(runtime))))
     .boxed()
 }
 
-fn label_view(bar: Bar, icon: Memo<Icon>, label: Memo<String>, lit: Memo<bool>) -> impl View {
+fn label_view(icon: Memo<Icon>, label: Memo<String>, lit: Memo<bool>, ink: Memo<Ink>) -> impl View {
     show(
         bind(move |runtime| label.with(runtime, |label| !label.is_empty())),
         move || {
-            text(label)
-                .font_family(INTER_FAMILY)
-                .text_size(FONT_SIZE)
-                .font_weight(FONT_WEIGHT)
-                .leading(LABEL_LINE_HEIGHT)
-                .ml(bind(move |runtime| {
-                    if matches!(icon.get(runtime), Icon::None) {
-                        0.0
-                    } else {
-                        ICON_LABEL_GAP
-                    }
-                }))
-                .text_color(bind(move |runtime| {
-                    let palette = bar.palette.get(runtime);
+            let shadow = move |runtime: &mut _| ink.get(runtime).shadow;
+            zstack((
+                label_text(label)
+                    .text_color(bind(shadow))
+                    .text_blur(SHADOW_BLUR)
+                    .translate(Vector::new(0.0, SHADOW_DROP))
+                    .hidden(bind(move |runtime| shadow(runtime).a <= 0.0)),
+                label_text(label).text_color(bind(move |runtime| {
+                    let ink = ink.get(runtime);
                     if lit.get(runtime) {
-                        palette.bar_fg_hover
+                        ink.fg_hover
                     } else {
-                        palette.bar_fg
+                        ink.fg
                     }
-                }))
+                })),
+            ))
+            .ml(bind(move |runtime| {
+                if matches!(icon.get(runtime), Icon::None) {
+                    0.0
+                } else {
+                    ICON_LABEL_GAP
+                }
+            }))
         },
         nothing,
     )
+}
+
+fn label_text(label: Memo<String>) -> Element<impl Kind> {
+    text(label)
+        .font_family(INTER_FAMILY)
+        .text_size(FONT_SIZE)
+        .font_weight(FONT_WEIGHT)
+        .leading(LABEL_LINE_HEIGHT)
 }
 
 /// A branch that takes no space.

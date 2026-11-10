@@ -6,10 +6,10 @@
 //! actually moved — so a snapshot that changes the Wi-Fi pill re-runs the
 //! Wi-Fi pill's bindings and nothing else.
 
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
 use crownbar_config::BarConfig;
-use crownui::prelude::{Cx, Memo, Runtime, Signal, Size, Store};
+use crownui::prelude::{Cx, Memo, Rect, Runtime, Signal, Size, Store};
 
 use crate::{
     popup::motion::{Frame, PanelMotion},
@@ -143,6 +143,16 @@ impl Bar {
             .update(cx, |revisions| revisions.extend(added));
         self.layout
             .update(cx, |layout| *layout = layout.wrapping_add(1));
+    }
+
+    /// Where `rect` lies along the bar, from 0 at its left end to 1 at its right.
+    pub fn span_of(self, runtime: &mut Runtime, rect: Rect) -> Range<f32> {
+        let margin = self.config.margin as f32;
+        let width = self.surface.get(runtime).width - 2.0 * margin;
+        if width <= 0.0 {
+            return 0.0..1.0;
+        }
+        (rect.min_x() - margin) / width..(rect.max_x() - margin) / width
     }
 
     /// Tells the views of every widget in `changed` to look again.

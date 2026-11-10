@@ -10,8 +10,10 @@
 //! the glass every panel is made of.
 
 mod glass;
+mod ink;
 
 pub use glass::{Glass, selection_theme};
+pub use ink::{Behind, Ink, Inks};
 
 use crownbar_integrations::live::wire::Accent;
 use crownconfig::ThemeOverrides;
@@ -28,16 +30,6 @@ const PANEL_OPACITY: f32 = 0.58;
 /// Never let the transparency setting take a panel below this — past it the
 /// text stops being readable over a bright wallpaper.
 const MIN_PANEL_OPACITY: f32 = 0.5;
-
-/// The bar's own foreground, idle then under the pointer, per mode. A panel's
-/// text sits on the panel's own body, but the bar's sits over the wallpaper,
-/// and the contrast that reads well there is the desktop's choice rather than
-/// a derivative of the window palette. `theme.ron` may override them as the
-/// `bar.fg` and `bar.fg_hover` tokens.
-const BAR_FG_DARK: Color = rgb(0xDD_DD_DD);
-const BAR_FG_HOVER_DARK: Color = rgb(0xAA_AA_AA);
-const BAR_FG_LIGHT: Color = rgb(0x11_11_11);
-const BAR_FG_HOVER_LIGHT: Color = rgb(0x33_33_33);
 
 /// The hues a live activity's chip can be tinted with.
 const CORAL: Color = rgb(0xD9_77_57);
@@ -71,6 +63,9 @@ pub const WIDGET_GAP: f32 = 4.0;
 pub const FONT_SIZE: f32 = 14.0;
 /// Font weight for widget text.
 pub const FONT_WEIGHT: u16 = 600;
+/// How soft the shadow under the bar's glyphs is, and how far it falls.
+pub const SHADOW_BLUR: f32 = 2.0;
+pub const SHADOW_DROP: f32 = 1.0;
 
 /// Two-stop gradient, projected onto whichever axis a surface catches the
 /// light along.
@@ -150,9 +145,11 @@ pub struct Palette {
     /// Pill fill under the pointer, and while the widget's panel is open.
     pub pill_hover: Color,
     pub pill_active: Color,
-    /// Icons and text on the bar, idle and under the pointer.
+    /// Icons and text on the bar, idle and under the pointer, as they read
+    /// across the whole bar; a pill takes its own from `inks`.
     pub bar_fg: Color,
     pub bar_fg_hover: Color,
+    pub inks: Inks,
     /// Third-level foreground — the trailing glyphs of a panel row.
     pub fg_dim: Color,
     /// What the popup panels are made of, and the theme their rows are drawn in.
@@ -169,26 +166,24 @@ pub struct Palette {
 
 impl Palette {
     /// The palette for `theme`, with the user's `transparency` (0..1) taken off
-    /// the panels and the bar tokens of `overrides` applied.
-    pub fn new(theme: &Theme, transparency: f32, overrides: &ThemeOverrides) -> Self {
+    /// the panels, the bar's ink chosen against what is `behind` it, and the bar
+    /// tokens of `overrides` applied.
+    pub fn new(
+        theme: &Theme,
+        transparency: f32,
+        overrides: &ThemeOverrides,
+        behind: Option<Behind>,
+    ) -> Self {
         let glass = Glass::new(theme, panel_opacity(transparency));
-        let dark = theme.mode.is_dark();
-        let (bar_fg, bar_fg_hover) = if dark {
-            (BAR_FG_DARK, BAR_FG_HOVER_DARK)
-        } else {
-            (BAR_FG_LIGHT, BAR_FG_HOVER_LIGHT)
-        };
-        let token = |name: &str, fallback: Color| {
-            overrides
-                .color(dark, name)
-                .map_or(fallback, |[r, g, b, a]| Color::new(r, g, b, a))
-        };
+        let inks = Inks::new(behind, glass.body, theme.mode.is_dark(), overrides);
+        let whole_bar = inks.over(0.0..1.0);
         Self {
             bar_fill: glass.body,
             pill_hover: theme.surface.hover,
             pill_active: scale_alpha(theme.surface.hover, PILL_ACTIVE_BOOST),
-            bar_fg: token("bar.fg", bar_fg),
-            bar_fg_hover: token("bar.fg_hover", bar_fg_hover),
+            bar_fg: whole_bar.fg,
+            bar_fg_hover: whole_bar.fg_hover,
+            inks,
             fg_dim: glass.ink_muted,
             glass,
             panel_theme: glass.rows_theme(theme),

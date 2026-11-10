@@ -17,6 +17,8 @@ crownplugin-render.workspace = true
 kurbo = "0.13"
 log.workspace = true
 tokio.workspace = true
+# The wallpaper under the bar, sampled to pick ink that reads on it.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 # The battery reading is drawn as Inter's own outlines, centred on their ink.
 ttf-parser = "0.25"
 

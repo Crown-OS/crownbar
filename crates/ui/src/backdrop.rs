@@ -18,6 +18,7 @@ use crownui::{
 };
 
 use crate::util::ease::fade_out;
+use crownbar_config::{BarConfig, BarPosition};
 
 /// Peak strength of the background, as a fraction of the body color's own
 /// alpha: the bar is a hint of ground under the widgets, not a panel.
@@ -35,6 +36,25 @@ pub enum Ground {
     Bottom,
     /// Clear of every edge, with corners of this radius.
     Floating { radius: f32 },
+}
+
+impl Ground {
+    pub fn of(config: &BarConfig) -> Self {
+        match (config.radius, config.position) {
+            (Some(radius), _) => Self::Floating { radius },
+            (None, BarPosition::Top) => Self::Top,
+            (None, BarPosition::Bottom) => Self::Bottom,
+        }
+    }
+
+    /// How much of the ground's color lies under the middle of the bar, where
+    /// its glyphs are.
+    pub fn strength_at_glyphs(self) -> f32 {
+        match self {
+            Self::Floating { .. } => 1.0,
+            Self::Top | Self::Bottom => FILL_STRENGTH * fade_out(0.5),
+        }
+    }
 }
 
 /// The bar's background: `color` along its screen edge, gone by the far side

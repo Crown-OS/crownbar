@@ -12,7 +12,12 @@ use crownplugin_render::{EventSink, Resolver, TokenSource, render};
 use crownui::prelude::{AnyView, Cx, Memo, Size, Styled, View, hstack, vstack};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{pill::nothing, probe::size_probe, state::Bar};
+use crate::{
+    pill::nothing,
+    probe::size_probe,
+    state::Bar,
+    theme::{Ink, Palette},
+};
 use crownbar_integrations::plugins::PluginsCommand;
 use crownbar_widgets::Surface;
 
@@ -25,10 +30,10 @@ struct BarHost {
     surface: SurfaceKey,
     rev: u32,
     commands: UnboundedSender<PluginsCommand>,
-    palette: Memo<crate::theme::Palette>,
-    /// Whether the pill is under the pointer or has its panel open; `None` in
-    /// a panel.
-    lit: Option<Memo<bool>>,
+    palette: Memo<Palette>,
+    /// Whether the pill is under the pointer or has its panel open, and the
+    /// ink it is drawn in; `None` in a panel.
+    pill: Option<(Memo<bool>, Memo<Ink>)>,
 }
 
 impl Resolver for BarHost {
@@ -43,16 +48,25 @@ impl Resolver for BarHost {
         }))
     }
 
-    /// `bar.fg` brightens with the pill, the way a built-in pill's label does.
+    /// `bar.fg` is the pill's own ink, and brightens with the pill the way a
+    /// built-in pill's label does.
     fn tokens(&self) -> Option<TokenSource> {
-        let (palette, lit) = (self.palette, self.lit);
+        let (palette, pill) = (self.palette, self.pill);
         Some(Rc::new(move |runtime, token| {
-            let lit = lit.is_some_and(|lit| lit.get(runtime));
-            let palette = palette.get(runtime);
+            let (lit, fg, fg_hover) = match pill {
+                Some((lit, ink)) => {
+                    let ink = ink.get(runtime);
+                    (lit.get(runtime), ink.fg, ink.fg_hover)
+                }
+                None => {
+                    let palette = palette.get(runtime);
+                    (false, palette.bar_fg, palette.bar_fg_hover)
+                }
+            };
             match token {
-                "bar.fg" if lit => Some(palette.bar_fg_hover),
-                "bar.fg" => Some(palette.bar_fg),
-                "bar.fg_hover" => Some(palette.bar_fg_hover),
+                "bar.fg" if lit => Some(fg_hover),
+                "bar.fg" => Some(fg),
+                "bar.fg_hover" => Some(fg_hover),
                 _ => None,
             }
         }))
@@ -64,7 +78,7 @@ fn draw(
     bar: Bar,
     surface: &Surface,
     part: Part,
-    lit: Option<Memo<bool>>,
+    pill: Option<(Memo<bool>, Memo<Ink>)>,
 ) -> Option<AnyView> {
     let tree = surface.tree(part)?;
     let host = BarHost {
@@ -72,14 +86,14 @@ fn draw(
         rev: tree.rev,
         commands: bar.state.with(cx, |state| state.services.plugins.sender()),
         palette: bar.palette,
-        lit,
+        pill,
     };
     Some(render(cx, tree, &host))
 }
 
 /// What a plugin's pill holds, lit with the pill.
-pub fn pill(cx: &mut Cx, bar: Bar, surface: &Surface, lit: Memo<bool>) -> AnyView {
-    match draw(cx, bar, surface, Part::Main, Some(lit)) {
+pub fn pill(cx: &mut Cx, bar: Bar, surface: &Surface, lit: Memo<bool>, ink: Memo<Ink>) -> AnyView {
+    match draw(cx, bar, surface, Part::Main, Some((lit, ink))) {
         Some(content) => hstack(content).h_full().items_center().boxed(),
         None => nothing(),
     }

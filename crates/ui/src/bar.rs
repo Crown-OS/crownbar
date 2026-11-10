@@ -41,11 +41,7 @@ fn strip(cx: &mut Cx, bar: Bar) -> impl View + use<> {
             .collect::<Vec<_>>()
     };
     let config = bar.config;
-    let ground = match (config.radius, config.position) {
-        (Some(radius), _) => Ground::Floating { radius },
-        (None, BarPosition::Top) => Ground::Top,
-        (None, BarPosition::Bottom) => Ground::Bottom,
-    };
+    let ground = Ground::of(&config);
     let margin = config.margin as f32;
     let strip = zstack((
         // A click on bare bar puts away whatever panel is up, the same way a
