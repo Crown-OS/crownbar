@@ -1,13 +1,16 @@
 //! One widget on the bar: a fully rounded capsule around its glyph and label.
 //!
 //! The capsule's fill fades in under the pointer and stays on while the
-//! widget's panel is up; the label shifts under the pointer alone. Both are
-//! transitions the render thread runs, so hovering costs the UI thread one
-//! signal write.
+//! widget's panel is up; the label shifts under the pointer alone. A live
+//! activity's capsule is a chip with a wash of its own, strengthened the same
+//! way. All of it is transitions the render thread runs, so hovering costs the
+//! UI thread one signal write.
+
+mod chip;
 
 use crownplugin_proto::Part;
 use crownui::{
-    ext::{Kind, Listener, NodeId},
+    ext::{Kind, Listener, NodeId, StyleProp},
     kit::INTER_FAMILY,
     prelude::{
         AnyView, Cx, Element, Memo, Role, Semantic, Styled, Vector, View, bind, canvas, keyed,
@@ -67,10 +70,20 @@ impl Kind for PillKind {
         let lit = cx.memo(move |runtime| hovered.get(runtime));
         let icon = cx.memo(move |runtime| bar.read(runtime, index, |widget| widget.icon()));
         let rect = cx.observe_rect(node);
+        let accent = cx.memo(move |runtime| bar.read(runtime, index, |widget| widget.accent()));
         let ink = cx.memo(move |runtime| {
             let rect = rect.get(runtime);
             let span = bar.span_of(runtime, rect);
-            bar.palette.get(runtime).inks.over(span)
+            bar.palette.get(runtime).pill_ink(span, accent.get(runtime))
+        });
+        let state = cx.memo(move |runtime| {
+            if active.get(runtime) {
+                PillState::Active
+            } else if hovered.get(runtime) {
+                PillState::Hovered
+            } else {
+                PillState::Rest
+            }
         });
 
         for listener in [
@@ -83,20 +96,16 @@ impl Kind for PillKind {
         ] {
             cx.add_listener(node, listener);
         }
-        let accent = cx.memo(move |runtime| bar.read(runtime, index, |widget| widget.accent()));
         cx.bind_style(node, move |runtime| {
-            let state = if active.get(runtime) {
-                PillState::Active
-            } else if hovered.get(runtime) {
-                PillState::Hovered
-            } else {
-                PillState::Rest
-            };
             let fill = bar
                 .palette
                 .get(runtime)
-                .pill_fill(state, accent.get(runtime));
-            crownui::ext::StyleProp::Background(Some(fill))
+                .pill_fill(state.get(runtime), accent.get(runtime));
+            StyleProp::Background(Some(fill))
+        });
+        cx.bind_style(node, move |runtime| {
+            let chips = bar.palette.get(runtime).chips;
+            StyleProp::Shadow(accent.get(runtime).map(|accent| chips.look(accent).shadow))
         });
 
         let label =
@@ -104,6 +113,7 @@ impl Kind for PillKind {
         cx.set_children(
             node,
             (
+                chip::wash(bar, accent, state),
                 glyph(bar, icon, ink),
                 label_view(icon, label, lit, ink),
                 plugin(bar, index, lit, ink),

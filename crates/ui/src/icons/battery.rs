@@ -11,8 +11,9 @@
 //! The numerals are drawn twice, in two inks, and each copy is clipped to one
 //! side of the charge line. That is what keeps a reading legible when it
 //! straddles the boundary: over the track it is always knocked out to the
-//! surface, while over the charge it takes whichever of the surface and the
-//! foreground reads better on the status colour the cell is wearing.
+//! glass body on the far side of the ink the track is made of, while over the
+//! charge it takes whichever of that knockout and the foreground reads better
+//! on the status colour the cell is wearing.
 
 use std::sync::OnceLock;
 
@@ -22,7 +23,7 @@ use crownui::{
 };
 use kurbo::{Affine, Arc, BezPath, Cap, Line, Point, Rect, RoundedRect, Shape, Stroke, Vec2};
 
-use crate::theme::{self, Palette, opaque};
+use crate::theme::{self, Palette};
 use crownbar_widgets::BatteryState;
 
 use super::{fade, glyph, numerals};
@@ -99,8 +100,9 @@ pub(super) fn draw_bar(
 ) {
     let cell = Cell::new(origin.x, origin.y, BAR_HEIGHT);
     let charge = charge_color(state, fg, p);
+    let knockout = knockout(fg, p);
     cell.shell(scene, state.level, charge, fade(fg, TRACK_ALPHA));
-    cell.reading(scene, state, [ink_on(charge, fg, p), opaque(p.bar_fill)]);
+    cell.reading(scene, state, [farthest(charge, [knockout, fg]), knockout]);
     cell.accessory(scene, state, fg);
 }
 
@@ -242,16 +244,22 @@ fn charge_color(state: BatteryState, fg: Color, p: &Palette) -> Color {
     theme::lerp(charging, p.warning, state.saver)
 }
 
-/// Whichever of the foreground and the surface reads better on `under` — the
-/// numerals are a knockout, and which way round that goes depends on the mode
-/// and on which status colour the cell is currently wearing.
-fn ink_on(under: Color, fg: Color, p: &Palette) -> Color {
-    let surface = opaque(p.bar_fill);
+/// Whichever glass body stands further from `fg`. The track is `fg` at part
+/// strength over whatever `fg` was chosen to read against, so it can land
+/// anywhere near the middle; only the ink itself says reliably which side of
+/// it the knockout belongs on.
+fn knockout(fg: Color, p: &Palette) -> Color {
+    farthest(fg, p.knockouts)
+}
+
+/// Whichever of `candidates` reads better on `under`, the first on a tie.
+fn farthest(under: Color, candidates: [Color; 2]) -> Color {
     let distance = |c: Color| (luma(under) - luma(c)).abs();
-    if distance(surface) >= distance(fg) {
-        surface
+    let [first, second] = candidates;
+    if distance(first) >= distance(second) {
+        first
     } else {
-        fg
+        second
     }
 }
 
@@ -261,7 +269,58 @@ fn luma(c: Color) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use crownconfig::{AccentColor, ThemeOverrides};
+    use crownui::kit::{Theme, ThemeMode};
+
     use super::*;
+    use crate::{
+        theme::Behind,
+        wallpaper::{Backdrop, SAMPLES},
+    };
+
+    const LIGHT_BODY: Color = Color::from_rgba8(0xF4, 0xF6, 0xFA, 0xFF);
+    const DARK_BODY: Color = Color::from_rgba8(0x0A, 0x0B, 0x0F, 0xFF);
+
+    fn palette(mode: ThemeMode, wallpaper: f32) -> Palette {
+        let behind = Behind {
+            wallpaper: Backdrop([Color::new(wallpaper, wallpaper, wallpaper, 1.0); SAMPLES]),
+            ground_strength: 0.0,
+        };
+        Palette::new(
+            &Theme::for_mode(mode, AccentColor::Purple),
+            0.0,
+            &ThemeOverrides::default(),
+            Some(behind),
+        )
+    }
+
+    #[test]
+    fn the_track_knocks_out_to_the_body_across_from_the_ink() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            for (wallpaper, body) in [(0.95, LIGHT_BODY), (0.05, DARK_BODY)] {
+                let p = palette(mode, wallpaper);
+                assert_eq!(knockout(p.bar_fg, &p), body, "{mode:?} over {wallpaper}");
+            }
+        }
+    }
+
+    #[test]
+    fn dark_ink_in_dark_mode_reads_light_on_track_and_charge() {
+        let p = palette(ThemeMode::Dark, 0.95);
+        let fg = p.bar_fg;
+        assert_eq!(fg, Color::from_rgba8(0x11, 0x11, 0x11, 0xFF));
+        let knockout = knockout(fg, &p);
+        assert_eq!(knockout, LIGHT_BODY);
+        let idle = BatteryState {
+            level: 0.5,
+            readout: 50,
+            ..BatteryState::default()
+        };
+        assert_eq!(
+            farthest(charge_color(idle, fg, &p), [knockout, fg]),
+            LIGHT_BODY
+        );
+    }
 
     #[test]
     fn a_reading_is_centred_on_the_body() {

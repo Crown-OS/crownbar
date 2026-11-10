@@ -23,11 +23,8 @@ use kurbo::Rect;
 
 use crownplugin_proto::Part;
 
-use super::dispatch;
-use crate::{
-    icons, remote, scene::Scene, state::Bar, theme::selection_theme,
-    util::theme::provide_derived_theme,
-};
+use super::{dispatch, optical::Seat};
+use crate::{icons, remote, scene::Scene, state::Bar};
 use crownbar_widgets::{
     BatteryState, Icon, PopupAction, PopupSpec, Rune,
     popup::{Header, Item, Row},
@@ -42,10 +39,10 @@ pub const ROW_GAP: f32 = 4.0;
 pub const ITEM_HEIGHT: f32 = 40.0;
 const ACTION_HEIGHT: f32 = 32.0;
 const SECTION_HEIGHT: f32 = 28.0;
-const BADGE_GLYPH: f32 = 16.0;
+const BADGE_GLYPH: f32 = 18.0;
 const PLAIN_GLYPH: f32 = 18.0;
 const BATTERY_CELL: (f32, f32) = (24.0, 12.0);
-const WARNING_GLYPH: f32 = 16.0;
+const WARNING_GLYPH: f32 = 15.0;
 const SIGNAL_METER: (f32, f32) = (16.0, 12.0);
 const SPINNER: f32 = 16.0;
 const HEADER_BUTTON: f32 = 28.0;
@@ -143,7 +140,6 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
             if chevron {
                 section
                     .disclosure()
-                    .rounded(SECTION_HEIGHT / 2.0)
                     .on_click(move |cx, _| activate(cx, bar, row))
                     .boxed()
             } else {
@@ -151,7 +147,6 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
             }
         }
         Row::Action { label } => panel_action(label)
-            .rounded(ACTION_HEIGHT / 2.0)
             .on_click(move |cx, _| activate(cx, bar, row))
             .boxed(),
         Row::Readout { .. } => panel_readout(
@@ -168,7 +163,7 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
             });
             calendar(shown).boxed()
         }
-        Row::Item(item) => item_view(cx, bar, row, *item),
+        Row::Item(item) => item_view(bar, row, *item),
         Row::Remote(surface) => remote::panel(cx, bar, &surface),
     }
 }
@@ -259,7 +254,7 @@ fn header_button(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
     let face = show(
         busy,
         || spinner().size(HEADER_BUTTON_GLYPH),
-        move || glyph(bar, row, tint, HEADER_BUTTON_GLYPH, icon_of),
+        move || glyph(bar, row, tint, HEADER_BUTTON_GLYPH, Seat::Bare, icon_of),
     );
     hstack(face)
         .size(HEADER_BUTTON)
@@ -329,7 +324,7 @@ fn slider(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, value: f32, mutable: boo
         .boxed()
 }
 
-/// A slider's icon, dimmed while what it controls is muted.
+/// A slider's icon on its badge, dimmed while what it controls is muted.
 fn slider_glyph(bar: Bar, row: Signal<PanelRow>, tint: Memo<Color>) -> AnyView {
     canvas(move |runtime, size, list| {
         let (icon, muted) = row.with(runtime, |row| match row.row {
@@ -342,33 +337,30 @@ fn slider_glyph(bar: Bar, row: Signal<PanelRow>, tint: Memo<Color>) -> AnyView {
         } else {
             tint.get(runtime)
         };
-        let bounds = Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height));
+        let bounds = Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height))
+            + Seat::Disc.nudge(icon, size.width);
         icons::draw_in(&mut Scene::new(list), icon, bounds, color, &palette);
     })
     .size(PLAIN_GLYPH)
     .boxed()
 }
 
-fn item_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {
-    let rows_theme = use_theme(cx);
-    provide_derived_theme(cx, move |runtime| rows_theme.with(runtime, selection_theme));
-    let mut view = panel_item(item.label.clone())
-        .rounded(ITEM_HEIGHT / 2.0)
-        .selected(bind(move |runtime| {
-            row.with(
-                runtime,
-                |row| matches!(&row.row, Row::Item(item) if item.selected),
-            )
-        }));
+fn item_view(bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {
+    let mut view = panel_item(item.label.clone()).selected(bind(move |runtime| {
+        row.with(
+            runtime,
+            |row| matches!(&row.row, Row::Item(item) if item.selected),
+        )
+    }));
     let icon_of = |row: &Row| match row {
         Row::Item(item) => item.icon,
         _ => Icon::None,
     };
     if !matches!(item.icon, Icon::None) {
         view = if item.badge {
-            view.badge(move |tint| glyph(bar, row, tint, BADGE_GLYPH, icon_of))
+            view.badge(move |tint| glyph(bar, row, tint, BADGE_GLYPH, Seat::Disc, icon_of))
         } else {
-            view.glyph(move |tint| glyph(bar, row, tint, PLAIN_GLYPH, icon_of))
+            view.glyph(move |tint| glyph(bar, row, tint, PLAIN_GLYPH, Seat::Bare, icon_of))
         };
     }
     if item.detail.is_some() {
@@ -400,19 +392,22 @@ fn item_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyVie
     view.on_click(move |cx, _| activate(cx, bar, row)).boxed()
 }
 
-/// A row's glyph, redrawn when the row's icon or the palette changes.
+/// A row's glyph, `size` square and nudged to look centred in its `seat`,
+/// redrawn when the row's icon or the palette changes.
 fn glyph(
     bar: Bar,
     row: Signal<PanelRow>,
     tint: Memo<Color>,
     size: f32,
+    seat: Seat,
     icon: fn(&Row) -> Icon,
 ) -> AnyView {
     canvas(move |runtime, size, list| {
         let icon = row.with(runtime, |row| icon(&row.row));
         let color = tint.get(runtime);
         let palette = bar.palette.get(runtime);
-        let bounds = Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height));
+        let bounds = Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height))
+            + seat.nudge(icon, size.width);
         icons::draw_in(&mut Scene::new(list), icon, bounds, color, &palette);
     })
     .size(size)

@@ -8,6 +8,7 @@
 
 mod host;
 pub mod motion;
+mod optical;
 mod rows;
 mod sheen;
 

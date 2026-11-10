@@ -9,39 +9,35 @@
 //! here is what the bar paints itself: its ground, its pills, its glyphs, and
 //! the glass every panel is made of.
 
+mod chip;
 mod glass;
 mod ink;
 
-pub use glass::{Glass, selection_theme};
+pub use chip::{ChipLook, Chips, HIGHLIGHT_DROP, boost_opacity};
+pub use glass::Glass;
 pub use ink::{Behind, Ink, Inks};
+
+use std::ops::Range;
 
 use crownbar_integrations::live::wire::Accent;
 use crownconfig::ThemeOverrides;
 use crownui::{
     ext::{Brush, GradientStop},
-    kit::Theme,
+    kit::{Theme, ThemeMode},
     prelude::{Color, CornerShape, Point},
 };
 
 /// Opacity of a popup panel before the user's transparency setting is taken
-/// off it. The bar's panels sit on the compositor's blur, and letting some of
-/// it through is most of what makes them look like part of the desktop.
-const PANEL_OPACITY: f32 = 0.58;
-/// Never let the transparency setting take a panel below this — past it the
-/// text stops being readable over a bright wallpaper.
-const MIN_PANEL_OPACITY: f32 = 0.5;
-
-/// The hues a live activity's chip can be tinted with.
-const CORAL: Color = rgb(0xD9_77_57);
-const BLUE: Color = rgb(0x3B_82_F6);
-const GREEN: Color = rgb(0x22_C5_5E);
-const AMBER: Color = rgb(0xF5_9E_0B);
-const VIOLET: Color = rgb(0x8B_5C_F6);
-/// How strongly a chip's accent shows through at rest, under the pointer, and
-/// while its panel is open.
-const ACCENT_REST: f32 = 0.32;
-const ACCENT_HOVER: f32 = 0.44;
-const ACCENT_ACTIVE: f32 = 0.56;
+/// off it, in light mode and in dark. The bar's panels sit on the compositor's
+/// blur, and letting some of it through is most of what makes them look like
+/// part of the desktop; the dark body needs more of itself to stay smoked.
+const LIGHT_PANEL_OPACITY: f32 = 0.58;
+const DARK_PANEL_OPACITY: f32 = 0.82;
+/// Never let the transparency setting take a panel below these — past them the
+/// text stops being readable over a bright wallpaper. Each mode keeps the same
+/// travel below its own opacity.
+const MIN_LIGHT_PANEL_OPACITY: f32 = 0.5;
+const MIN_DARK_PANEL_OPACITY: f32 = 0.74;
 
 /// How much stronger the pill under an open panel is than a hovered one.
 const PILL_ACTIVE_BOOST: f32 = 2.2;
@@ -150,6 +146,11 @@ pub struct Palette {
     pub bar_fg: Color,
     pub bar_fg_hover: Color,
     pub inks: Inks,
+    /// Both modes' glass bodies, opaque, light then dark: what a glyph cut out
+    /// of the bar's ink is knocked out to.
+    pub knockouts: [Color; 2],
+    /// Live activities' chips, in this mode.
+    pub chips: Chips,
     /// Third-level foreground — the trailing glyphs of a panel row.
     pub fg_dim: Color,
     /// What the popup panels are made of, and the theme their rows are drawn in.
@@ -174,8 +175,10 @@ impl Palette {
         overrides: &ThemeOverrides,
         behind: Option<Behind>,
     ) -> Self {
-        let glass = Glass::new(theme, panel_opacity(transparency));
-        let inks = Inks::new(behind, glass.body, theme.mode.is_dark(), overrides);
+        let dark_mode = theme.mode.is_dark();
+        let glass = Glass::new(theme, panel_opacity(transparency, dark_mode));
+        let inks = Inks::new(behind, glass.body, dark_mode, overrides);
+        let opaque_body = |mode| Glass::new(&Theme { mode, ..*theme }, 1.0).body;
         let whole_bar = inks.over(0.0..1.0);
         Self {
             bar_fill: glass.body,
@@ -184,13 +187,15 @@ impl Palette {
             bar_fg: whole_bar.fg,
             bar_fg_hover: whole_bar.fg_hover,
             inks,
+            knockouts: [ThemeMode::Light, ThemeMode::Dark].map(opaque_body),
+            chips: Chips::new(dark_mode),
             fg_dim: glass.ink_muted,
             glass,
             panel_theme: glass.rows_theme(theme),
             warning: theme.status.warning,
             success: theme.status.success,
             danger: theme.status.danger,
-            weather: if theme.mode.is_dark() {
+            weather: if dark_mode {
                 WEATHER_DARK
             } else {
                 WEATHER_LIGHT
@@ -210,37 +215,35 @@ pub enum PillState {
 impl Palette {
     /// `accent` as a solid color.
     pub fn accent(&self, accent: Accent) -> Color {
-        match accent {
-            Accent::Neutral => self.bar_fg,
-            Accent::Coral => CORAL,
-            Accent::Blue => BLUE,
-            Accent::Green => GREEN,
-            Accent::Amber => AMBER,
-            Accent::Red => self.danger,
-            Accent::Violet => VIOLET,
+        chip::hue(accent).unwrap_or(self.bar_fg)
+    }
+
+    /// The fill under a pill in `state`. A live activity's chip, tinted or not,
+    /// paints its own wash, so it gets none.
+    pub fn pill_fill(&self, state: PillState, accent: Option<Accent>) -> Color {
+        match (state, accent) {
+            (_, Some(_)) | (PillState::Rest, None) => with_alpha(self.pill_hover, 0.0),
+            (PillState::Hovered, None) => self.pill_hover,
+            (PillState::Active, None) => self.pill_active,
         }
     }
 
-    /// The fill under a pill in `state`, tinted by `accent` if it has one.
-    pub fn pill_fill(&self, state: PillState, accent: Option<Accent>) -> Color {
-        let Some(accent) = accent.filter(|accent| *accent != Accent::Neutral) else {
-            return match state {
-                PillState::Rest => with_alpha(self.pill_hover, 0.0),
-                PillState::Hovered => self.pill_hover,
-                PillState::Active => self.pill_active,
-            };
-        };
-        let strength = match state {
-            PillState::Rest => ACCENT_REST,
-            PillState::Hovered => ACCENT_HOVER,
-            PillState::Active => ACCENT_ACTIVE,
-        };
-        with_alpha(self.accent(accent), strength)
+    /// The ink for a pill across `span` of the bar: a tinted chip's own, or
+    /// whichever reads over the wallpaper there.
+    pub fn pill_ink(&self, span: Range<f32>, accent: Option<Accent>) -> Ink {
+        accent
+            .and_then(|accent| self.chips.ink(accent))
+            .map_or_else(|| self.inks.over(span), Ink::solid)
     }
 }
 
-fn panel_opacity(transparency: f32) -> f32 {
-    (PANEL_OPACITY - transparency.clamp(0.0, 1.0)).max(MIN_PANEL_OPACITY)
+fn panel_opacity(transparency: f32, dark_mode: bool) -> f32 {
+    let (opacity, floor) = if dark_mode {
+        (DARK_PANEL_OPACITY, MIN_DARK_PANEL_OPACITY)
+    } else {
+        (LIGHT_PANEL_OPACITY, MIN_LIGHT_PANEL_OPACITY)
+    };
+    (opacity - transparency.clamp(0.0, 1.0)).max(floor)
 }
 
 const fn rgb(hex: u32) -> Color {
@@ -281,4 +284,63 @@ pub fn lerp(a: Color, b: Color, t: f32) -> Color {
         (pa + (pb - pa) * t) / alpha
     };
     Color::new(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b), alpha)
+}
+
+#[cfg(test)]
+mod tests {
+    use crownconfig::AccentColor;
+
+    use super::*;
+    use crate::wallpaper::{Backdrop, SAMPLES};
+
+    const WHOLE_BAR: Range<f32> = 0.0..1.0;
+
+    fn over_wallpaper(mode: ThemeMode, level: f32) -> Palette {
+        let behind = Behind {
+            wallpaper: Backdrop([Color::new(level, level, level, 1.0); SAMPLES]),
+            ground_strength: 0.0,
+        };
+        Palette::new(
+            &Theme::for_mode(mode, AccentColor::Purple),
+            0.0,
+            &ThemeOverrides::default(),
+            Some(behind),
+        )
+    }
+
+    #[test]
+    fn a_tinted_chip_keeps_its_ink_whatever_the_wallpaper() {
+        for (mode, ink) in [
+            (ThemeMode::Light, rgb(0x11_11_11)),
+            (ThemeMode::Dark, rgb(0xFF_FF_FF)),
+        ] {
+            for level in [0.05, 0.95] {
+                let chip = over_wallpaper(mode, level).pill_ink(WHOLE_BAR, Some(Accent::Blue));
+                assert_eq!(
+                    (chip.fg, chip.fg_hover),
+                    (ink, ink),
+                    "{mode:?} over {level}"
+                );
+                assert_eq!(chip.shadow.a, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn untinted_chips_and_plain_pills_read_the_wallpaper() {
+        let palette = over_wallpaper(ThemeMode::Dark, 0.95);
+        let wallpaper = palette.inks.over(WHOLE_BAR);
+        assert_eq!(
+            palette.pill_ink(WHOLE_BAR, Some(Accent::Neutral)),
+            wallpaper
+        );
+        assert_eq!(palette.pill_ink(WHOLE_BAR, None), wallpaper);
+        assert_eq!(wallpaper.fg, rgb(0x11_11_11));
+    }
+
+    #[test]
+    fn the_knockouts_are_both_glass_bodies_opaque() {
+        let palette = over_wallpaper(ThemeMode::Dark, 0.5);
+        assert_eq!(palette.knockouts, [rgb(0xF4_F6_FA), rgb(0x0A_0B_0F)],);
+    }
 }

@@ -106,6 +106,15 @@ impl Inks {
 }
 
 impl Ink {
+    /// `fg` idle and under the pointer, over a ground that needs no shadow.
+    pub const fn solid(fg: Color) -> Self {
+        Self {
+            fg,
+            fg_hover: fg,
+            shadow: with_alpha(fg, 0.0),
+        }
+    }
+
     fn of(tone: Tone, overrides: &ThemeOverrides) -> Self {
         let (dark_tokens, (fg, fg_hover)) = match tone {
             Tone::Light => (true, LIGHT),

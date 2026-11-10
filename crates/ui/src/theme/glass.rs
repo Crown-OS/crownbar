@@ -1,8 +1,7 @@
 //! The panels' glass: a smoked body over a deep, vivid blur, a specular rim
 //! that catches the light at the top-left and pools again along the bottom,
 //! and the kit theme the rows inside are drawn in — white ink, glass bubbles
-//! for anything at rest, the desktop's accent for anything on, and a plain
-//! white wash for whatever is chosen.
+//! for anything at rest, and the desktop's accent for anything on or chosen.
 
 use crownui::{
     kit::{GradientStops, MenuColors, PopoverColors, SurfaceColors, TextColors, Theme},
@@ -10,9 +9,6 @@ use crownui::{
 };
 
 use super::{rgb, with_alpha};
-
-/// A chosen badge's glyph, dark on the white knob in either mode.
-const ON_KNOB: Color = rgb(0x10_12_18);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glass {
@@ -27,7 +23,9 @@ pub struct Glass {
     pub ink_muted: Color,
     /// A hovered row's wash, and the rim of a bubble.
     pub wash: Color,
-    /// A control at rest: a switch that is off, an idle badge.
+    /// The hairline between groups of rows.
+    pub separator: Color,
+    /// A control at rest: a switch that is off.
     pub bubble: Color,
 }
 
@@ -40,8 +38,9 @@ const DARK: Glass = Glass {
     ],
     gloss: with_alpha(rgb(0xFF_FF_FF), 0.07),
     ink: rgb(0xFF_FF_FF),
-    ink_muted: with_alpha(rgb(0xFF_FF_FF), 0.58),
+    ink_muted: with_alpha(rgb(0xFF_FF_FF), 0.66),
     wash: with_alpha(rgb(0xFF_FF_FF), 0.09),
+    separator: with_alpha(rgb(0xFF_FF_FF), 0.12),
     bubble: with_alpha(rgb(0xFF_FF_FF), 0.20),
 };
 
@@ -56,6 +55,7 @@ const LIGHT: Glass = Glass {
     ink: rgb(0x10_12_18),
     ink_muted: with_alpha(rgb(0x10_12_18), 0.55),
     wash: with_alpha(rgb(0x10_12_18), 0.06),
+    separator: with_alpha(rgb(0x10_12_18), 0.06),
     bubble: with_alpha(rgb(0x10_12_18), 0.12),
 };
 
@@ -92,19 +92,10 @@ impl Glass {
                 ..base.popover
             },
             menu: MenuColors {
-                separator: self.wash,
-                selected_bg: self.ink,
+                separator: self.separator,
                 ..base.menu
             },
             ..*base
         }
-    }
-}
-
-/// `rows`, with a chosen row's badge inked in place of the accent.
-pub fn selection_theme(rows: &Theme) -> Theme {
-    Theme {
-        accent: GradientStops::new(ON_KNOB, ON_KNOB),
-        ..*rows
     }
 }
