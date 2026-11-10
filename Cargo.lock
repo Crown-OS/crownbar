@@ -604,6 +604,7 @@ dependencies = [
  "bluer",
  "chrono",
  "clap",
+ "crownlink-linux",
  "crownos-ipc",
  "crownotify",
  "crownplugin-proto",
@@ -669,6 +670,14 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "crownlink-linux"
+version = "0.1.1"
+dependencies = [
+ "crownos-ipc",
+ "serde",
 ]
 
 [[package]]

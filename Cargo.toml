@@ -23,6 +23,7 @@ view = { git = "https://github.com/crown-os/crownui" }
 crownos-config = { git = "https://github.com/crown-os/crownos-config", default-features = false }
 crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc" }
 crownotify = { git = "https://github.com/crown-os/crownotify", default-features = false }
+crownlink-linux = { git = "https://github.com/crown-os/crownlink-linux", default-features = false }
 crownplugin-proto = { git = "https://github.com/crown-os/crownos-plugins" }
 crownplugin-render = { git = "https://github.com/crown-os/crownos-plugins" }
 
@@ -57,6 +58,9 @@ crownos-ipc = { path = "../crownos-ipc" }
 
 [patch."https://github.com/crown-os/crownotify"]
 crownotify = { path = "../crownotify" }
+
+[patch."https://github.com/crown-os/crownlink-linux"]
+crownlink-linux = { path = "../crownlink-linux" }
 
 [profile.release]
 lto = "thin"

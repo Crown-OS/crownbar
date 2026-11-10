@@ -1,16 +1,19 @@
 //! Activities other services already know about: the microphone, the camera,
-//! a screen being shared, the machine held awake. A bridge reads a service's
-//! snapshots and says which activities they stand for; following the snapshots
-//! and keeping the chips in step is the same for every bridge, and lives here.
+//! a screen being shared, the machine held awake, a linked phone's call and
+//! streams. A bridge reads a service's snapshots and says which activities
+//! they stand for; following the snapshots and keeping the chips in step is
+//! the same for every bridge, and lives here.
 
 mod caffeine;
 mod capture;
+mod phone;
 mod screencast;
 
 use std::{convert::Infallible, sync::Arc, time::Instant};
 
 pub use caffeine::CaffeineBridge;
 pub use capture::CaptureBridge;
+pub use phone::PhoneBridge;
 pub use screencast::ScreencastBridge;
 
 use crate::{

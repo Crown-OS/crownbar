@@ -16,6 +16,7 @@ pub mod battery;
 pub mod bluetooth;
 pub mod brightness;
 pub mod caffeine;
+pub mod crownlink;
 pub mod live;
 pub mod network;
 pub mod nightlight;

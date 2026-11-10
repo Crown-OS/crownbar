@@ -69,6 +69,22 @@ impl<I> Feed<I> {
     }
 }
 
+#[cfg(test)]
+impl<I> Feed<I> {
+    /// A feed nobody reads, for building a source's activities in a test.
+    pub fn detached(origin: Origin) -> Self {
+        let (board, _) = unbounded_channel();
+        let (_, inputs) = unbounded_channel();
+        let (_, steers) = unbounded_channel();
+        Self {
+            origin,
+            board,
+            inputs,
+            steers,
+        }
+    }
+}
+
 /// Starts sources and remembers where each one's controls go.
 pub struct Sources {
     board: UnboundedSender<BoardUpdate>,

@@ -15,6 +15,9 @@ crownos-ipc = { workspace = true, features = ["tokio"] }
 # it. Without `daemon` it is the schema alone — none of the notification
 # daemon's rendering or D-Bus stack is built here.
 crownotify.workspace = true
+# crownlink's declaration of its protocol, for the phone link. Without
+# `daemon` it is the schema alone, none of the media or Bluetooth stack.
+crownlink-linux.workspace = true
 # crownplugind's wire contract.
 crownplugin-proto.workspace = true
 

@@ -33,8 +33,9 @@ use crate::{
     audio::{AudioCommand, AudioState},
     bus::{Backend, Publisher, Tap},
     caffeine::{CaffeineCommand, CaffeineState},
+    crownlink::{PhoneCommand, PhoneState},
     live::{
-        bridge::{Bridged, CaffeineBridge, CaptureBridge, ScreencastBridge},
+        bridge::{Bridged, CaffeineBridge, CaptureBridge, PhoneBridge, ScreencastBridge},
         ingress::Ingress,
         source::Sources,
     },
@@ -46,6 +47,7 @@ pub struct Bridges {
     pub audio: Tap<AudioState, AudioCommand>,
     pub screencast: Tap<ScreencastState, ScreencastCommand>,
     pub caffeine: Tap<CaffeineState, CaffeineCommand>,
+    pub crownlink: Tap<PhoneState, PhoneCommand>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -98,6 +100,7 @@ pub async fn run(backend: Backend<LiveState, LiveCommand>, bridges: Bridges) {
         bridges.screencast,
     ));
     sources.spawn(Bridged::new(CaffeineBridge, bridges.caffeine));
+    sources.spawn(Bridged::new(PhoneBridge::default(), bridges.crownlink));
     let routes = sources.into_routes();
     tokio::spawn(ingress::listen(ingress.clone()));
 

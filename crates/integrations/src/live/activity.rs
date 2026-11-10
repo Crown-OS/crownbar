@@ -22,6 +22,7 @@ pub enum Origin {
     Capture,
     Screencast,
     Caffeine,
+    Phone,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
