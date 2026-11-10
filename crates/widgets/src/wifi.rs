@@ -5,15 +5,20 @@
 //! not — so the pill is right on a cold boot and stays right across a daemon
 //! restart. It draws whichever link the default route leaves by: the Wi-Fi
 //! arcs, or an Ethernet port once a cable carries the traffic.
+//!
+//! The panel also lists every linked phone that can share its connection,
+//! each with a switch for the phone's own hotspot — not this computer's.
 
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WifiState,
     animation::Spring,
+    phone,
     popup::{Header, Item, PanelBuilder, Row},
     snapshot::Snapshot,
 };
 use crownbar_integrations::{
     Interest, Services,
+    crownlink::{DeviceId, Feature, PhoneCommand, PhoneDevice, PhoneState},
     link::{self, SettingsPane},
     network::{NetworkCommand, NetworkState, Radio, Uplink, WifiNetwork},
 };
@@ -22,6 +27,7 @@ use crownbar_integrations::{
 const SWEEP_SECS: f32 = 1.4;
 pub struct WifiWidget {
     network: Snapshot<NetworkState>,
+    phones: Snapshot<PhoneState>,
     strength: Spring,
     off: Spring,
     searching: Spring,
@@ -37,13 +43,26 @@ enum Target {
     Join(String),
     /// Needs a password the bar has nowhere to type, so it hands off.
     Handoff,
+    /// A linked phone's own hotspot.
+    Hotspot(DeviceId),
     Settings,
 }
+
+/// What a switch in the panel turns on and off.
+#[derive(Debug, PartialEq, Eq)]
+enum Switch {
+    Radio,
+    Hotspot(DeviceId),
+}
+
+/// The header, with the radio's switch, opens every panel.
+const HEADER_ROW: usize = 0;
 
 impl WifiWidget {
     pub fn new() -> Self {
         Self {
             network: Snapshot::default(),
+            phones: Snapshot::default(),
             strength: Spring::new(0.0),
             off: Spring::new(0.0),
             searching: Spring::new(0.0),
@@ -129,43 +148,10 @@ impl WifiWidget {
             );
         }
     }
-}
 
-impl BarWidget for WifiWidget {
-    fn id(&self) -> &str {
-        "wifi"
-    }
-
-    fn visible(&self) -> bool {
-        self.network.radio != Radio::Absent || self.on_cable()
-    }
-
-    fn icon(&self) -> Icon {
-        Icon::Wifi(WifiState {
-            strength: self.strength.position,
-            off: self.off.position,
-            searching: self.searching.position,
-            phase: self.phase,
-            wired: self.wired.position,
-        })
-    }
-
-    fn sync(&mut self, services: &Services) -> bool {
-        if !self.network.replace(services.network.read()) {
-            return false;
-        }
-        // Only the pill's own state is worth a repaint; a change to the list
-        // behind it reaches the panel through its own invalidation.
-        self.retarget()
-    }
-
-    fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
-        // Scanning costs radio time, so it runs only while the panel is up.
-        services
-            .network
-            .send(NetworkCommand::Interest(Interest::Panel));
-
+    fn panel(&mut self) -> PopupSpec {
         let state = self.network.for_panel();
+        let phones = self.phones.for_panel();
         let mut panel = PanelBuilder::new();
         let header = Header::new("Wi-Fi").toggle(state.radio.on());
         if state.radio.on() {
@@ -220,26 +206,82 @@ impl BarWidget for WifiWidget {
             );
         }
 
+        hotspots(&mut panel, &phones.devices);
+
         panel.row(Row::Separator);
-        panel.action(
-            Row::Action {
-                label: "Network Settings…".into(),
-            },
-            Target::Settings,
-        );
+        panel.action(Row::action("Network Settings…"), Target::Settings);
 
         let (spec, targets) = panel.finish();
         self.targets = targets;
-        Some(spec)
+        spec
+    }
+
+    fn target(&self, row: usize) -> Option<Target> {
+        self.targets.get(row).cloned().flatten()
+    }
+
+    /// The switch at `row`. A row that has since become something else — a
+    /// phone gone between the panel's build and the click — has none, so it
+    /// can never flip this computer's radio instead.
+    fn switch_at(&self, row: usize) -> Option<Switch> {
+        match self.target(row) {
+            _ if row == HEADER_ROW => Some(Switch::Radio),
+            Some(Target::Hotspot(id)) => Some(Switch::Hotspot(id)),
+            _ => None,
+        }
+    }
+}
+
+impl BarWidget for WifiWidget {
+    fn id(&self) -> &str {
+        "wifi"
+    }
+
+    fn visible(&self) -> bool {
+        self.network.radio != Radio::Absent || self.on_cable()
+    }
+
+    fn icon(&self) -> Icon {
+        Icon::Wifi(WifiState {
+            strength: self.strength.position,
+            off: self.off.position,
+            searching: self.searching.position,
+            phase: self.phase,
+            wired: self.wired.position,
+        })
+    }
+
+    fn sync(&mut self, services: &Services) -> bool {
+        self.phones.replace(services.crownlink.read());
+        if !self.network.replace(services.network.read()) {
+            return false;
+        }
+        // Only the pill's own state is worth a repaint; a change to the list
+        // behind it reaches the panel through its own invalidation.
+        self.retarget()
+    }
+
+    fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
+        // Scanning costs radio time, so it runs only while the panel is up.
+        services
+            .network
+            .send(NetworkCommand::Interest(Interest::Panel));
+        Some(self.panel())
     }
 
     fn on_popup(&mut self, action: PopupAction, services: &Services) -> AfterAction {
         match action {
-            PopupAction::Toggle { on, .. } => {
-                services.network.send(NetworkCommand::SetRadio(on));
+            PopupAction::Toggle { row, on } => {
+                match self.switch_at(row) {
+                    Some(Switch::Radio) => services.network.send(NetworkCommand::SetRadio(on)),
+                    Some(Switch::Hotspot(id)) => {
+                        services.crownlink.send(PhoneCommand::SetHotspot(id, on))
+                    }
+                    None => {}
+                }
                 AfterAction::Stay
             }
-            PopupAction::Activate { row } => match self.targets.get(row).cloned().flatten() {
+            PopupAction::Activate { row } => match self.target(row) {
                 Some(Target::Refresh) => {
                     if !self.network.scanning {
                         services.network.send(NetworkCommand::Scan);
@@ -270,7 +312,7 @@ impl BarWidget for WifiWidget {
                     link::open(SettingsPane::Network);
                     AfterAction::Close
                 }
-                None => AfterAction::Stay,
+                Some(Target::Hotspot(_)) | None => AfterAction::Stay,
             },
             PopupAction::Slide { .. } => AfterAction::Stay,
         }
@@ -283,7 +325,7 @@ impl BarWidget for WifiWidget {
     }
 
     fn panel_stale(&self) -> bool {
-        self.network.panel_stale()
+        self.network.panel_stale() || self.phones.panel_stale()
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {
@@ -305,6 +347,24 @@ impl BarWidget for WifiWidget {
     }
 }
 
+/// "Personal Hotspot": every linked device that may share its connection,
+/// with a switch once it has said whether its hotspot is up. Until then the
+/// row only names it.
+fn hotspots(panel: &mut PanelBuilder<Target>, devices: &[PhoneDevice]) {
+    let mut sharing = phone::allowing(devices, Feature::Hotspot).peekable();
+    if sharing.peek().is_none() {
+        return;
+    }
+    phone::section(panel, "Personal Hotspot");
+    for device in sharing {
+        let item = phone::item(device, Feature::Hotspot);
+        match device.hotspot {
+            Some(on) => panel.action(item.switch(on).row(), Target::Hotspot(device.id)),
+            None => panel.row(item.enabled(false).row()),
+        };
+    }
+}
+
 /// A negotiated link rate the way a settings pane prints it.
 fn link_speed(mbps: u32) -> String {
     match mbps {
@@ -315,12 +375,101 @@ fn link_speed(mbps: u32) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::phone::fixture::*;
 
     #[test]
     fn link_speeds_read_in_the_largest_whole_unit() {
         assert_eq!(link_speed(100), "100 Mb/s");
         assert_eq!(link_speed(1000), "1 Gb/s");
         assert_eq!(link_speed(2500), "2.5 Gb/s");
+    }
+
+    fn wifi_panel(devices: Vec<PhoneDevice>) -> (WifiWidget, PopupSpec) {
+        let mut widget = WifiWidget::new();
+        widget.network.replace(Arc::new(NetworkState::default()));
+        widget.phones.replace(state(devices));
+        let spec = widget.panel();
+        (widget, spec)
+    }
+
+    fn sharing(device: PhoneDevice, on: bool) -> PhoneDevice {
+        PhoneDevice {
+            hotspot: Some(on),
+            ..device
+        }
+    }
+
+    #[test]
+    fn no_phone_means_no_hotspot_heading() {
+        let (_, spec) = wifi_panel(Vec::new());
+        assert!(!sections(&spec).contains(&"Personal Hotspot"));
+    }
+
+    #[test]
+    fn each_phone_gets_a_switch_for_its_own_hotspot() {
+        for devices in rosters() {
+            let devices: Vec<_> = devices
+                .into_iter()
+                .enumerate()
+                .map(|(index, device)| sharing(device, index == 0))
+                .collect();
+            let (widget, spec) = wifi_panel(devices.clone());
+            assert!(!matches!(widget.target(0), Some(Target::Hotspot(_))));
+            let rows = section_items(&spec, "Personal Hotspot");
+            assert_eq!(rows.len(), devices.len());
+            for ((row, item), device) in rows.iter().zip(&devices) {
+                assert_eq!(item.label, &*device.name);
+                assert_eq!(item.switch, device.hotspot);
+                assert!(
+                    matches!(widget.target(*row), Some(Target::Hotspot(id)) if id == device.id)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_header_switch_reaches_the_radio() {
+        let (widget, spec) = wifi_panel(vec![
+            sharing(phone(ONEPLUS, "OnePlus 11 5G"), false),
+            phone(PIXEL, "Pixel 8"),
+        ]);
+        assert_eq!(widget.switch_at(HEADER_ROW), Some(Switch::Radio));
+        let rows = section_items(&spec, "Personal Hotspot");
+        assert_eq!(widget.switch_at(rows[0].0), Some(Switch::Hotspot(ONEPLUS)));
+        assert_eq!(widget.switch_at(rows[1].0), None);
+        assert_eq!(widget.switch_at(spec.rows.len()), None);
+    }
+
+    #[test]
+    fn a_hotspot_not_yet_reported_is_named_but_has_no_switch() {
+        let (widget, spec) = wifi_panel(vec![
+            phone(ONEPLUS, "OnePlus 11 5G"),
+            forbidding(sharing(phone(PIXEL, "Pixel 8"), true), Feature::Hotspot),
+        ]);
+        let rows = section_items(&spec, "Personal Hotspot");
+        assert_eq!(labels(&rows), ["OnePlus 11 5G"]);
+        let (row, item) = rows[0];
+        assert_eq!(item.switch, None);
+        assert!(!item.enabled);
+        assert!(widget.target(row).is_none());
+    }
+
+    #[test]
+    fn the_hotspot_section_stays_while_the_radio_is_off() {
+        let mut widget = WifiWidget::new();
+        let mut network = NetworkState::default();
+        network.radio = Radio::Off;
+        widget.network.replace(Arc::new(network));
+        widget
+            .phones
+            .replace(state(vec![sharing(phone(PIXEL, "Pixel 8"), false)]));
+        let spec = widget.panel();
+        assert_eq!(
+            labels(&section_items(&spec, "Personal Hotspot")),
+            ["Pixel 8"]
+        );
     }
 }

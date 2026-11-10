@@ -10,9 +10,10 @@ mod popup;
 
 use std::{f32::consts::TAU, sync::Arc, time::Instant};
 
-use crate::{AfterAction, BarWidget, Icon, PopupAction, PopupSpec};
+use crate::{AfterAction, BarWidget, Icon, PopupAction, PopupSpec, phone};
 use crownbar_integrations::{
     Services,
+    crownlink::Stream,
     live::{Accent, Activity, LiveCommand, MAX_CHIPS, Urgency},
 };
 
@@ -142,8 +143,10 @@ impl BarWidget for LiveChip {
         self.activity.as_ref().map(|activity| activity.accent)
     }
 
-    fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
-        let (spec, targets) = popup::panel(self.activity.as_deref()?, Instant::now());
+    fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
+        let activity = self.activity.as_deref()?;
+        let phones = services.crownlink.read();
+        let (spec, targets) = popup::panel(activity, &phones.devices, Instant::now());
         self.targets = targets;
         Some(spec)
     }
@@ -170,6 +173,10 @@ impl BarWidget for LiveChip {
                 Some(Target::Seek),
             ) => {
                 services.live.send(LiveCommand::seek(key, value));
+                AfterAction::Stay
+            }
+            (PopupAction::Activate { .. }, Some(Target::Webcam(id))) => {
+                phone::toggle(services, id, Stream::Camera);
                 AfterAction::Stay
             }
             _ => AfterAction::Stay,

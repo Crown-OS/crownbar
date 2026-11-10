@@ -79,12 +79,7 @@ impl BarWidget for ClockWidget {
             today.day() as u8,
         )));
         panel.row(Row::Separator);
-        panel.action(
-            Row::Action {
-                label: "Date & Time Settings…".into(),
-            },
-            Target::Settings,
-        );
+        panel.action(Row::action("Date & Time Settings…"), Target::Settings);
 
         let (spec, targets) = panel.finish();
         self.targets = targets;

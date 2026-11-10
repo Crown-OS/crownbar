@@ -133,12 +133,7 @@ impl BarWidget for BrightnessWidget {
         }
 
         panel.row(Row::Separator);
-        panel.action(
-            Row::Action {
-                label: "Display Settings…".into(),
-            },
-            Target::Settings,
-        );
+        panel.action(Row::action("Display Settings…"), Target::Settings);
 
         let (spec, targets) = panel.finish();
         self.targets = targets;

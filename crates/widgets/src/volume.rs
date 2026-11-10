@@ -7,21 +7,27 @@
 //! Every slider addresses its node by id, the way pavucontrol does: the
 //! default output, the default input, and each application playing. Pressing
 //! a slider's icon mutes what it controls.
+//!
+//! A linked phone that can lend its microphone joins the inputs; picking it
+//! asks crownlink to start, or stop, streaming it here.
 
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune,
     animation::Spring,
+    phone,
     popup::{Header, Item, PanelBuilder, Row},
     snapshot::Snapshot,
 };
 use crownbar_integrations::{
     Services,
     audio::{AudioCommand, AudioState, Device, DeviceKind, MAX_LEVEL, NodeId, Stream, Volume},
+    crownlink::{self, DeviceId, Feature, PhoneDevice, PhoneState},
     link::{self, SettingsPane},
 };
 
 pub struct VolumeWidget {
     audio: Snapshot<AudioState>,
+    phones: Snapshot<PhoneState>,
     level: Spring,
     muted: Spring,
     targets: Vec<Option<Target>>,
@@ -35,6 +41,7 @@ enum Target {
     Level(NodeId),
     Output(NodeId),
     Input(NodeId),
+    PhoneMic(DeviceId),
     Settings,
 }
 
@@ -42,6 +49,7 @@ impl VolumeWidget {
     pub fn new() -> Self {
         Self {
             audio: Snapshot::default(),
+            phones: Snapshot::default(),
             level: Spring::new(0.0),
             muted: Spring::new(0.0),
             targets: Vec::new(),
@@ -79,6 +87,53 @@ impl VolumeWidget {
             });
         }
     }
+
+    fn panel(&mut self) -> PopupSpec {
+        let audio = self.audio.for_panel();
+        let phones = self.phones.for_panel();
+        let mut panel = PanelBuilder::new();
+        panel.row(Header::new("Sound").row());
+
+        let output = audio.default_output();
+        let output_rune = output.map_or(Rune::Speaker, |device| rune_for(device.kind));
+        level_row(&mut panel, output_rune, output.map(|d| (d.id, d.volume)));
+        if !audio.outputs.is_empty() {
+            section(&mut panel, "Output");
+            device_rows(&mut panel, &audio.outputs, Target::Output);
+        }
+
+        application_rows(&mut panel, audio.playing());
+
+        let mut phone_mics = phone::allowing(&phones.devices, Feature::Mic).peekable();
+        if !audio.inputs.is_empty() || phone_mics.peek().is_some() {
+            section(&mut panel, "Input");
+        }
+        if !audio.inputs.is_empty() {
+            let input = audio.default_input().map(|d| (d.id, d.volume));
+            level_row(&mut panel, Rune::Microphone, input);
+            device_rows(&mut panel, &audio.inputs, Target::Input);
+        }
+        phone_mics.for_each(|device| phone_mic_row(&mut panel, device));
+        // No level meter is possible — pipewire-native has no stream API —
+        // but who is holding the microphone is the question people actually
+        // ask of a bar, and the registry answers it for free.
+        let users = audio.microphone_users();
+        if !audio.inputs.is_empty() && !users.is_empty() {
+            panel.row(
+                Item::new(format!("In use by {}", users.join(", ")))
+                    .plain()
+                    .enabled(false)
+                    .row(),
+            );
+        }
+
+        panel.row(Row::Separator);
+        panel.action(Row::action("Sound Settings…"), Target::Settings);
+
+        let (spec, targets) = panel.finish();
+        self.targets = targets;
+        spec
+    }
 }
 
 impl BarWidget for VolumeWidget {
@@ -98,6 +153,7 @@ impl BarWidget for VolumeWidget {
     }
 
     fn sync(&mut self, services: &Services) -> bool {
+        self.phones.replace(services.crownlink.read());
         if !self.audio.replace(services.audio.read()) {
             return false;
         }
@@ -105,50 +161,7 @@ impl BarWidget for VolumeWidget {
     }
 
     fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
-        let audio = self.audio.for_panel();
-        let mut panel = PanelBuilder::new();
-        panel.row(Header::new("Sound").row());
-
-        let output = audio.default_output();
-        let output_rune = output.map_or(Rune::Speaker, |device| rune_for(device.kind));
-        level_row(&mut panel, output_rune, output.map(|d| (d.id, d.volume)));
-        if !audio.outputs.is_empty() {
-            section(&mut panel, "Output");
-            device_rows(&mut panel, &audio.outputs, Target::Output);
-        }
-
-        application_rows(&mut panel, audio.playing());
-
-        if !audio.inputs.is_empty() {
-            section(&mut panel, "Input");
-            let input = audio.default_input().map(|d| (d.id, d.volume));
-            level_row(&mut panel, Rune::Microphone, input);
-            device_rows(&mut panel, &audio.inputs, Target::Input);
-            // No level meter is possible — pipewire-native has no stream API —
-            // but who is holding the microphone is the question people
-            // actually ask of a bar, and the registry answers it for free.
-            let users = audio.microphone_users();
-            if !users.is_empty() {
-                panel.row(
-                    Item::new(format!("In use by {}", users.join(", ")))
-                        .plain()
-                        .enabled(false)
-                        .row(),
-                );
-            }
-        }
-
-        panel.row(Row::Separator);
-        panel.action(
-            Row::Action {
-                label: "Sound Settings…".into(),
-            },
-            Target::Settings,
-        );
-
-        let (spec, targets) = panel.finish();
-        self.targets = targets;
-        Some(spec)
+        Some(self.panel())
     }
 
     fn on_popup(&mut self, action: PopupAction, services: &Services) -> AfterAction {
@@ -183,6 +196,10 @@ impl BarWidget for VolumeWidget {
                 }
                 AfterAction::Close
             }
+            (Target::PhoneMic(id), PopupAction::Activate { .. }) => {
+                phone::toggle(services, id, crownlink::Stream::Mic);
+                AfterAction::Close
+            }
             (Target::Settings, PopupAction::Activate { .. }) => {
                 link::open(SettingsPane::Sound);
                 AfterAction::Close
@@ -192,7 +209,7 @@ impl BarWidget for VolumeWidget {
     }
 
     fn panel_stale(&self) -> bool {
-        self.audio.panel_stale()
+        self.audio.panel_stale() || self.phones.panel_stale()
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {
@@ -252,6 +269,17 @@ fn device_rows(
     }
 }
 
+/// A linked device's microphone, chosen while it streams here.
+fn phone_mic_row(panel: &mut PanelBuilder<Target>, device: &PhoneDevice) {
+    panel.action(
+        phone::item(device, Feature::Mic)
+            .detail(phone::kind(device.class))
+            .selected(device.is_streaming(crownlink::Stream::Mic))
+            .row(),
+        Target::PhoneMic(device.id),
+    );
+}
+
 /// One slider per application stream, each under the application's name.
 fn application_rows(panel: &mut PanelBuilder<Target>, streams: &[Stream]) {
     if streams.is_empty() {
@@ -281,5 +309,76 @@ fn rune_for(kind: DeviceKind) -> Rune {
         DeviceKind::Display => Rune::Display,
         DeviceKind::Microphone | DeviceKind::Webcam => Rune::Microphone,
         DeviceKind::Speakers | DeviceKind::Unknown => Rune::Laptop,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::phone::fixture::*;
+
+    fn sound_panel(devices: Vec<PhoneDevice>) -> (VolumeWidget, PopupSpec) {
+        let mut widget = VolumeWidget::new();
+        widget.audio.replace(Arc::new(AudioState::default()));
+        widget.phones.replace(state(devices));
+        let spec = widget.panel();
+        (widget, spec)
+    }
+
+    #[test]
+    fn no_phone_and_no_microphone_means_no_input_heading() {
+        let (_, spec) = sound_panel(Vec::new());
+        assert!(!sections(&spec).contains(&"Input"));
+    }
+
+    #[test]
+    fn each_phone_that_lends_its_mic_is_an_input() {
+        for devices in rosters() {
+            let count = devices.len();
+            let (widget, spec) = sound_panel(devices.clone());
+            let inputs = section_items(&spec, "Input");
+            assert_eq!(inputs.len(), count);
+            for ((row, item), device) in inputs.iter().zip(&devices) {
+                assert_eq!(item.label, &*device.name);
+                assert_eq!(item.detail.as_deref(), Some("Phone"));
+                assert_eq!(item.icon, Icon::Rune(Rune::Phone));
+                assert!(item.badge && !item.selected);
+                assert!(
+                    matches!(widget.targets[*row], Some(Target::PhoneMic(id)) if id == device.id)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_streaming_phone_mic_is_the_chosen_input() {
+        let (_, spec) = sound_panel(vec![
+            running(phone(ONEPLUS, "OnePlus 11 5G"), Feature::Mic),
+            phone(PIXEL, "Pixel 8"),
+            forbidding(phone(DeviceId([3; 32]), "Tablet"), Feature::Mic),
+        ]);
+        let chosen: Vec<_> = section_items(&spec, "Input")
+            .iter()
+            .map(|(_, item)| (item.label.as_str(), item.selected))
+            .collect();
+        assert_eq!(chosen, [("OnePlus 11 5G", true), ("Pixel 8", false)]);
+    }
+
+    #[test]
+    fn a_phone_that_leaves_takes_only_its_own_row() {
+        let [_, _, both] = rosters();
+        let (_, before) = sound_panel(both.clone());
+        let (_, after) = sound_panel(both[1..].to_vec());
+        let identity = |spec: &PopupSpec, name: &str| {
+            section_items(spec, "Input")
+                .into_iter()
+                .find(|(_, item)| item.label == name)
+                .and_then(|(_, item)| item.identity)
+        };
+        assert_eq!(labels(&section_items(&after, "Input")), ["Pixel 8"]);
+        assert_eq!(identity(&before, "Pixel 8"), identity(&after, "Pixel 8"));
+        assert!(identity(&before, "Pixel 8").is_some());
     }
 }

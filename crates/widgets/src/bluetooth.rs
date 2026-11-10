@@ -144,12 +144,7 @@ impl BarWidget for BluetoothWidget {
         }
 
         panel.row(Row::Separator);
-        panel.action(
-            Row::Action {
-                label: "Bluetooth Settings…".into(),
-            },
-            Target::Settings,
-        );
+        panel.action(Row::action("Bluetooth Settings…"), Target::Settings);
 
         let (spec, targets) = panel.finish();
         self.targets = targets;

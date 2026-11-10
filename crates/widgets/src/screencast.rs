@@ -167,7 +167,7 @@ fn panel(state: &ScreencastState) -> Option<(PopupSpec, Vec<Option<Target>>)> {
             1 => "Stop Sharing".to_owned(),
             _ => format!("Stop Sharing with {}", cast.app),
         };
-        panel.action(Row::Action { label }, Target::Stop(cast.id));
+        panel.action(Row::action(label), Target::Stop(cast.id));
     }
     Some(panel.finish())
 }
@@ -238,7 +238,7 @@ mod tests {
         assert!(matches!(targets.last(), Some(Some(Target::Stop(4)))));
         assert!(matches!(
             spec.rows.last(),
-            Some(Row::Action { label }) if label == "Stop Sharing"
+            Some(Row::Action { label, .. }) if label == "Stop Sharing"
         ));
     }
 }

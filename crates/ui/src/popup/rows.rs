@@ -10,9 +10,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crownui::{
     kit::{
-        PanelHeaderKind, PanelHeaderOptions, PanelItemOptions, PanelSectionOptions,
-        PanelSliderOptions, calendar, panel_action, panel_header, panel_item, panel_readout,
-        panel_section, panel_separator, panel_slider, spinner, use_theme,
+        PanelHeaderKind, PanelHeaderOptions, PanelItemKind, PanelItemOptions, PanelSectionOptions,
+        PanelSliderOptions, Theme, calendar, panel_action, panel_header, panel_item, panel_readout,
+        panel_section, panel_separator, panel_slider, spinner, toggle, use_theme,
     },
     prelude::{
         AnyView, Color, CursorIcon, Cx, Element, Listeners, Memo, Role, Semantic, Signal, Styled,
@@ -24,10 +24,10 @@ use kurbo::Rect;
 use crownplugin_proto::Part;
 
 use super::{dispatch, optical::Seat};
-use crate::{icons, remote, scene::Scene, state::Bar};
+use crate::{icons, remote, scene::Scene, state::Bar, util::theme::provide_derived_theme};
 use crownbar_widgets::{
     BatteryState, Icon, PopupAction, PopupSpec, Rune,
-    popup::{Header, Item, Row},
+    popup::{Header, Item, Row, Tone},
 };
 
 /// Space above the first row and below the last, the same as the kit's inset
@@ -96,7 +96,10 @@ fn row_height(row: &Row) -> f32 {
 
 fn shape_key(index: usize, row: &Row) -> u64 {
     let mut hasher = DefaultHasher::new();
-    index.hash(&mut hasher);
+    match row {
+        Row::Item(item) if item.identity.is_some() => item.identity.hash(&mut hasher),
+        _ => index.hash(&mut hasher),
+    }
     std::mem::discriminant(row).hash(&mut hasher);
     match row {
         Row::Header(header) => (
@@ -106,7 +109,7 @@ fn shape_key(index: usize, row: &Row) -> u64 {
         )
             .hash(&mut hasher),
         Row::Section { title, chevron } => (title, chevron).hash(&mut hasher),
-        Row::Action { label } => label.hash(&mut hasher),
+        Row::Action { label, tone } => (label, tone).hash(&mut hasher),
         Row::Item(item) => (
             &item.label,
             item.badge,
@@ -117,6 +120,7 @@ fn shape_key(index: usize, row: &Row) -> u64 {
             item.signal.is_some(),
             item.busy,
             item.detail.is_some(),
+            item.switch.is_some(),
             matches!(item.icon, Icon::None),
         )
             .hash(&mut hasher),
@@ -146,9 +150,15 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
                 section.boxed()
             }
         }
-        Row::Action { label } => panel_action(label)
-            .on_click(move |cx, _| activate(cx, bar, row))
-            .boxed(),
+        Row::Action { label, tone } => {
+            if tone == Tone::Danger {
+                let theme = use_theme(cx);
+                provide_derived_theme(cx, move |runtime| theme.with(runtime, danger));
+            }
+            panel_action(label)
+                .on_click(move |cx, _| activate(cx, bar, row))
+                .boxed()
+        }
         Row::Readout { .. } => panel_readout(
             bind(move |runtime| row.with(runtime, |row| readout(&row.row).0)),
             bind(move |runtime| row.with(runtime, |row| readout(&row.row).1)),
@@ -163,9 +173,17 @@ pub fn view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>) -> AnyView {
             });
             calendar(shown).boxed()
         }
-        Row::Item(item) => item_view(bar, row, *item),
+        Row::Item(item) => item_view(cx, bar, row, *item),
         Row::Remote(surface) => remote::panel(cx, bar, &surface),
     }
+}
+
+/// The panel's theme with its ink swapped for the danger colour, for an
+/// action that cannot be undone.
+fn danger(theme: &Theme) -> Theme {
+    let mut theme = *theme;
+    theme.popover.text = theme.status.danger;
+    theme
 }
 
 fn readout(row: &Row) -> (String, String) {
@@ -345,7 +363,7 @@ fn slider_glyph(bar: Bar, row: Signal<PanelRow>, tint: Memo<Color>) -> AnyView {
     .boxed()
 }
 
-fn item_view(bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {
+fn item_view(cx: &mut Cx, bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {
     let mut view = panel_item(item.label.clone()).selected(bind(move |runtime| {
         row.with(
             runtime,
@@ -389,7 +407,48 @@ fn item_view(bar: Bar, row: Signal<PanelRow>, item: Item) -> AnyView {
     if !item.enabled {
         return view.inert().boxed();
     }
-    view.on_click(move |cx, _| activate(cx, bar, row)).boxed()
+    match item.switch {
+        Some(on) => item_switch(cx, bar, row, view, &item.label, on),
+        None => view.on_click(move |cx, _| activate(cx, bar, row)).boxed(),
+    }
+}
+
+fn stated_switch(row: &Row) -> Option<bool> {
+    match row {
+        Row::Item(item) => item.switch,
+        _ => None,
+    }
+}
+
+/// An item's trailing switch, which a click anywhere on the row flips. It
+/// flips away from the position last asked for, so a second click before the
+/// service answers takes the first back rather than repeating it.
+fn item_switch(
+    cx: &mut Cx,
+    bar: Bar,
+    row: Signal<PanelRow>,
+    item: Element<PanelItemKind>,
+    label: &str,
+    on: bool,
+) -> AnyView {
+    let switch = cx.signal(on);
+    let sent = cx.signal(on);
+    let stated = cx.memo(move |runtime| row.with(runtime, |row| stated_switch(&row.row)));
+    cx.effect(move |runtime| {
+        if let Some(on) = stated.get(runtime) {
+            switch.set(runtime, on);
+            sent.set(runtime, on);
+        }
+    });
+    item.trailing(toggle(switch).label(label.to_owned()).self_center())
+        .on_click(move |cx, _| {
+            let on = !sent.with_untracked(cx, |on| *on);
+            switch.set(cx, on);
+            sent.set(cx, on);
+            let row = index_of(cx, row);
+            dispatch(cx, bar, PopupAction::Toggle { row, on });
+        })
+        .boxed()
 }
 
 /// A row's glyph, `size` square and nudged to look centred in its `seat`,
@@ -528,6 +587,34 @@ mod tests {
         assert_eq!(key(plugin_panel(1, 3)), key(plugin_panel(1, 3)));
         assert_ne!(key(plugin_panel(1, 3)), key(plugin_panel(1, 4)));
         assert_ne!(key(plugin_panel(1, 3)), key(plugin_panel(2, 3)));
+    }
+
+    #[test]
+    fn a_switch_keeps_its_row_while_it_flips() {
+        let row = |on| keyed(spec(vec![Item::new("Pixel").switch(on).row()]))[0].key;
+        assert_eq!(row(false), row(true));
+        assert_ne!(
+            row(true),
+            keyed(spec(vec![Item::new("Pixel").row()]))[0].key
+        );
+    }
+
+    #[test]
+    fn an_identified_row_keeps_its_key_wherever_it_lands() {
+        let pixel = || Item::new("Pixel").identity(7).row();
+        let alone = keyed(spec(vec![pixel()]));
+        let moved = keyed(spec(vec![Item::new("OnePlus").identity(8).row(), pixel()]));
+        assert_eq!(alone[0].key, moved[1].key);
+        assert_ne!(moved[0].key, moved[1].key);
+    }
+
+    #[test]
+    fn a_destructive_action_is_a_different_row() {
+        let key = |row| keyed(spec(vec![row]))[0].key;
+        assert_ne!(
+            key(Row::action("Hang Up")),
+            key(Row::destructive("Hang Up"))
+        );
     }
 
     #[test]

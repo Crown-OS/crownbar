@@ -9,6 +9,8 @@
 //! Rows are addressed by their index in [`PopupSpec::rows`], so a widget that
 //! builds its spec from a list can map an action straight back onto it.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use crownui::kit::CalendarDate;
 
 use crate::{Icon, Rune, Surface};
@@ -45,6 +47,7 @@ pub enum Row {
     /// Footer row that hands off elsewhere ("Sound Settings…").
     Action {
         label: String,
+        tone: Tone,
     },
     /// The clock's readout: the time, large, with the date beneath it.
     Readout {
@@ -56,6 +59,32 @@ pub enum Row {
     /// A plugin's panel, drawn from the tree crownplugind sent. It sizes
     /// itself.
     Remote(Surface),
+}
+
+impl Row {
+    pub fn action(label: impl Into<String>) -> Self {
+        Self::Action {
+            label: label.into(),
+            tone: Tone::Plain,
+        }
+    }
+
+    /// An action that ends something for good, set in the danger colour.
+    pub fn destructive(label: impl Into<String>) -> Self {
+        Self::Action {
+            label: label.into(),
+            tone: Tone::Danger,
+        }
+    }
+}
+
+/// How an action row reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Tone {
+    #[default]
+    Plain,
+    /// It cannot be undone: a hang-up.
+    Danger,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -120,6 +149,12 @@ pub struct Item {
     pub warning: bool,
     /// A connect or disconnect is in flight: a spinner at the right edge.
     pub busy: bool,
+    /// A switch at the row's right edge. Flipping it, or clicking the row,
+    /// sends [`PopupAction::Toggle`] for the row.
+    pub switch: Option<bool>,
+    /// What the row stands for when that outlives its place in the panel —
+    /// a device that keeps its row while the ones above it come and go.
+    pub identity: Option<u64>,
     pub enabled: bool,
 }
 
@@ -178,6 +213,20 @@ impl Item {
         self
     }
 
+    pub fn switch(mut self, on: bool) -> Self {
+        self.switch = Some(on);
+        self
+    }
+
+    /// Key the row by `identity` rather than by its place, which must then be
+    /// unique within the panel.
+    pub fn identity(mut self, identity: impl Hash) -> Self {
+        let mut hasher = DefaultHasher::new();
+        identity.hash(&mut hasher);
+        self.identity = Some(hasher.finish());
+        self
+    }
+
     pub fn row(self) -> Row {
         Row::Item(Box::new(self))
     }
@@ -186,7 +235,7 @@ impl Item {
 /// What the pointer did to a panel, addressed by row index.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PopupAction {
-    /// The header switch was flipped to `on`.
+    /// The header's or an item's switch was flipped to `on`.
     Toggle { row: usize, on: bool },
     /// A slider was dragged to `value` ∈ [0, 1]. Fires continuously while the
     /// pointer is down, with `commit` set on release.

@@ -7,6 +7,7 @@ mod clock;
 mod layout;
 mod live;
 mod notifications;
+mod phone;
 pub mod popup;
 mod remote;
 mod screencast;
