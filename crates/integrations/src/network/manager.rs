@@ -9,12 +9,14 @@
 use std::{sync::Arc, time::Duration};
 
 use futures_util::{FutureExt, StreamExt};
-use nmrs::{ConnectionError, NetworkManager, WifiSecurity};
+use nmrs::{ConnectionError, NetworkManager, WifiSecurity, models::DeviceState};
 use tokio::time;
 
 use crate::{
     bus::{Commands, Publisher},
-    network::{Joined, MAX_OTHER, NetworkCommand, NetworkState, Radio, WifiNetwork, link},
+    network::{
+        Joined, MAX_OTHER, NetworkCommand, NetworkState, Radio, Uplink, WifiNetwork, Wired, link,
+    },
     reconnect::Backoff,
     status::{Availability, ErrorKind, Failure, Interest},
     util::field::set_changed,
@@ -45,6 +47,8 @@ pub async fn run(publish: Publisher<NetworkState>, mut commands: Commands<Networ
                 publish.edit(|state| {
                     state.availability = Availability::Unavailable(Arc::from(reason.clone()));
                     state.connected = None;
+                    state.wired = None;
+                    state.uplink = link::uplink();
                     state.known.clear();
                     state.others.clear();
                     state.fallback_quality = link::quality().unwrap_or(0.0);
@@ -155,6 +159,9 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing
             ip4: network.ip4_address.clone(),
         });
 
+    let wired = wired(nm).await;
+    let uplink = Uplink::resolve(link::uplink(), joined.as_ref(), wired.as_ref());
+
     let listed = match radio.on() && listing {
         true => Some(list(nm, joined.as_ref()).await),
         false => None,
@@ -171,6 +178,8 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing
         let mut changed = set_changed(&mut state.availability, Availability::Ready)
             | set_changed(&mut state.radio, radio)
             | set_changed(&mut state.connected, joined)
+            | set_changed(&mut state.wired, wired)
+            | set_changed(&mut state.uplink, uplink)
             | set_changed(&mut state.scanning, scanning);
         if let Some((known, others)) = lists {
             changed |=
@@ -178,6 +187,18 @@ async fn refresh(nm: &NetworkManager, publish: &Publisher<NetworkState>, listing
         }
         changed
     });
+}
+
+/// The first Ethernet device NetworkManager has fully brought up.
+async fn wired(nm: &NetworkManager) -> Option<Wired> {
+    nm.list_wired_device_details()
+        .await
+        .ok()?
+        .into_iter()
+        .find(|device| device.state == DeviceState::Activated)
+        .map(|device| Wired {
+            speed_mbps: device.speed_mbps.filter(|&speed| speed > 0),
+        })
 }
 
 /// Quantized to steps the icon and the rows can actually show: a resting radio

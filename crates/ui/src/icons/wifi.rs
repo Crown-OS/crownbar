@@ -1,6 +1,7 @@
 //! Wi-Fi rune: a dot plus three arcs (Lucide geometry). The arcs light by link
 //! quality when associated, run an outward sweep while searching, and a slash
-//! draws itself on when the radio is blocked.
+//! draws itself on when the radio is blocked. Once a cable carries the
+//! traffic the whole rune cross-fades to an Ethernet port.
 
 use std::sync::OnceLock;
 
@@ -11,7 +12,7 @@ use kurbo::{Rect, Stroke};
 use crownbar_widgets::WifiState;
 
 use super::{
-    fade,
+    ethernet, fade,
     glyph::{self, Glyph},
     lerp,
 };
@@ -65,6 +66,16 @@ fn rune() -> &'static Rune {
 }
 
 pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) {
+    let wired = state.wired.clamp(0.0, 1.0);
+    if wired > MIN_ALPHA {
+        ethernet::draw(scene, b, fade(fg, wired));
+    }
+    if wired < 1.0 - MIN_ALPHA {
+        draw_radio(scene, b, fade(fg, 1.0 - wired), state);
+    }
+}
+
+fn draw_radio(scene: &mut Scene<'_>, b: Rect, fg: Color, state: WifiState) {
     let rune = rune();
     if rune.dot.is_empty() || rune.arcs.iter().any(Glyph::is_empty) {
         return;

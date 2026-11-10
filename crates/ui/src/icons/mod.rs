@@ -10,6 +10,7 @@ mod battery;
 mod bluetooth;
 mod brightness;
 mod caffeine;
+mod ethernet;
 mod glyph;
 mod layout;
 mod live;

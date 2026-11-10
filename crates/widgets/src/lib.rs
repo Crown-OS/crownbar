@@ -122,6 +122,7 @@ pub enum Rune {
     Sun,
     Moon,
     Wifi,
+    Ethernet,
     Bluetooth,
     Warning,
     /// The three power profiles, in the order the panel lists them.
@@ -164,9 +165,9 @@ pub struct BatteryState {
     pub low: f32,
 }
 
-/// Wi-Fi visual state. `off` / `searching` are spring-smoothed crossfades
-/// between the icon's poses; `phase` is the position in the scanning sweep's
-/// cycle, advanced only while the sweep is running.
+/// Network visual state. `off` / `searching` / `wired` are spring-smoothed
+/// crossfades between the icon's poses; `phase` is the position in the
+/// scanning sweep's cycle, advanced only while the sweep is running.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WifiState {
     /// Link quality ∈ [0, 1].
@@ -177,6 +178,8 @@ pub struct WifiState {
     pub searching: f32,
     /// Sweep cycle position ∈ [0, 1).
     pub phase: f32,
+    /// 0 = traffic leaves by radio, 1 = by cable.
+    pub wired: f32,
 }
 
 /// Lean, extensible widget surface.

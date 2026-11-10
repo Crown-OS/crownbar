@@ -53,6 +53,7 @@ const LAPTOP: &str = "M4.5 16.5V6.75A2.25 2.25 0 0 1 6.75 4.5h10.5a2.25 2.25 0 0
 const KEYBOARD: &str = "M3.75 18.75h16.5a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H3.75A2.25 2.25 0 0 0 1.5 7.5v9a2.25 2.25 0 0 0 2.25 2.25ZM6 9.75h.008v.008H6V9.75Zm4 0h.008v.008H10V9.75Zm4 0h.008v.008H14V9.75Zm4 0h.008v.008H18V9.75ZM7.5 14.25h9";
 const GAMEPAD: &str = "M6.75 6.75h10.5a4.5 4.5 0 0 1 4.5 4.5v4.5a2.25 2.25 0 0 1-2.25 2.25L16.5 15h-9l-3 3a2.25 2.25 0 0 1-2.25-2.25v-4.5a4.5 4.5 0 0 1 4.5-4.5ZM6 11.25h3m-1.5-1.5v3m8.25-.75h.008v.008h-.008V12Zm1.5-1.5h.008v.008h-.008V10.5Z";
 const STOPWATCH: &str = "M12 6a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15Zm0 0V3m-2.25 0h4.5M12 13.5l2.25-2.25m3.75-4.5 1.5-1.5";
+const ETHERNET: &str = "M8.25 19.5h7.5l2.25-2.25h1.5A2.25 2.25 0 0 0 21.75 15V6.75A2.25 2.25 0 0 0 19.5 4.5h-15A2.25 2.25 0 0 0 2.25 6.75V15a2.25 2.25 0 0 0 2.25 2.25H6l2.25 2.25ZM6.75 8.25v1.5m3.5-1.5v1.5m3.5-1.5v1.5m3.5-1.5v1.5";
 const BLUETOOTH: &str = "m6.75 7.5 10.5 9-5.25 4.5V3l5.25 4.5-10.5 9";
 /// One dial for every power profile, its needle swung from low to high.
 const GAUGE_LOW: &str = "M5.636 19.864a9 9 0 1 1 12.728 0M13.5 13.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0ZM10.701 12.75 6.804 10.5";
@@ -73,6 +74,7 @@ fn svg(rune: Rune) -> &'static str {
         Rune::Sun => SUN,
         Rune::Moon => MOON,
         Rune::Wifi => WIFI,
+        Rune::Ethernet => ETHERNET,
         Rune::Bluetooth => BLUETOOTH,
         Rune::Warning => WARNING,
         Rune::GaugeLow => GAUGE_LOW,
@@ -119,6 +121,7 @@ fn glyph_for(rune: Rune) -> &'static Glyph {
         Sun,
         Moon,
         Wifi,
+        Ethernet,
         Bluetooth,
         Warning,
         GaugeLow,
@@ -161,7 +164,7 @@ mod tests {
 
     use super::*;
 
-    const ALL: [Rune; 29] = [
+    const ALL: [Rune; 30] = [
         Rune::Headphones,
         Rune::Speaker,
         Rune::Laptop,
@@ -173,6 +176,7 @@ mod tests {
         Rune::Sun,
         Rune::Moon,
         Rune::Wifi,
+        Rune::Ethernet,
         Rune::Bluetooth,
         Rune::Warning,
         Rune::GaugeLow,

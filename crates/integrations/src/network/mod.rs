@@ -1,4 +1,4 @@
-//! Wi-Fi, over NetworkManager.
+//! Wi-Fi and Ethernet, over NetworkManager.
 //!
 //! The read model is already in the shape the panel draws — the joined
 //! network, then known ones, then strangers — so a widget walks it rather than
@@ -7,8 +7,6 @@
 
 pub mod link;
 mod manager;
-
-use std::sync::Arc;
 
 use crate::{
     bus::Backend,
@@ -66,6 +64,34 @@ pub struct Joined {
     pub ip4: Option<String>,
 }
 
+/// The wired link NetworkManager has activated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Wired {
+    /// Negotiated link rate. `None` when the driver reports none.
+    pub speed_mbps: Option<u32>,
+}
+
+/// The link traffic leaves by: the kernel's default route.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Uplink {
+    #[default]
+    None,
+    Wifi,
+    Ethernet,
+}
+
+impl Uplink {
+    /// The kernel's answer when it has one; otherwise NetworkManager's own
+    /// preference, a cable over a radio, which is what its route metrics say.
+    fn resolve(routed: Self, joined: Option<&Joined>, wired: Option<&Wired>) -> Self {
+        match routed {
+            Self::None if wired.is_some() => Self::Ethernet,
+            Self::None if joined.is_some() => Self::Wifi,
+            routed => routed,
+        }
+    }
+}
+
 /// Personal Hotspot. NetworkManager can do this — an AP-mode profile with
 /// shared IPv4 — but owning it belongs to crownlink, so the surface is here
 /// and the body is not.
@@ -86,6 +112,8 @@ pub struct NetworkState {
     pub availability: Availability,
     pub radio: Radio,
     pub connected: Option<Joined>,
+    pub wired: Option<Wired>,
+    pub uplink: Uplink,
     /// In range, saved, not the joined one. Strongest first.
     pub known: Vec<WifiNetwork>,
     /// In range, never saved. Strongest first, already capped.
@@ -140,25 +168,20 @@ pub async fn run(backend: Backend<NetworkState, NetworkCommand>) {
     let Backend { publish, commands } = backend;
 
     // The kernel answers before NetworkManager does, and keeps answering if it
-    // dies, so the icon is never wrong for lack of a daemon.
-    let present = link::interface().is_some();
+    // dies, so the icon is never wrong for lack of a daemon. A machine with no
+    // radio still has NetworkManager to ask about its cable.
+    let wireless = link::interface().is_some();
     publish.edit(|state| {
         state.fallback_quality = link::quality().unwrap_or(0.0);
-        state.radio = if present {
+        state.uplink = link::uplink();
+        state.radio = if wireless {
             Radio::Unknown
         } else {
             Radio::Absent
         };
-        state.availability = if present {
-            Availability::Starting
-        } else {
-            Availability::Unavailable(Arc::from("no wireless device"))
-        };
+        state.availability = Availability::Starting;
         true
     });
-    if !present {
-        return;
-    }
 
     manager::run(publish, commands).await;
 }

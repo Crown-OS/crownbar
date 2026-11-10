@@ -1,9 +1,10 @@
-//! Wi-Fi widget and the panel behind it.
+//! Network widget and the panel behind it.
 //!
 //! The icon follows [`crownbar_integrations::network`], which reads NetworkManager
 //! when it is up and falls back to the kernel's own carrier state when it is
 //! not — so the pill is right on a cold boot and stays right across a daemon
-//! restart.
+//! restart. It draws whichever link the default route leaves by: the Wi-Fi
+//! arcs, or an Ethernet port once a cable carries the traffic.
 
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WifiState,
@@ -14,7 +15,7 @@ use crate::{
 use crownbar_integrations::{
     Interest, Services,
     link::{self, SettingsPane},
-    network::{NetworkCommand, NetworkState, Radio, WifiNetwork},
+    network::{NetworkCommand, NetworkState, Radio, Uplink, WifiNetwork},
 };
 
 /// One scanning sweep, in seconds.
@@ -24,6 +25,7 @@ pub struct WifiWidget {
     strength: Spring,
     off: Spring,
     searching: Spring,
+    wired: Spring,
     phase: f32,
     targets: Vec<Option<Target>>,
 }
@@ -45,26 +47,60 @@ impl WifiWidget {
             strength: Spring::new(0.0),
             off: Spring::new(0.0),
             searching: Spring::new(0.0),
+            wired: Spring::new(0.0),
             phase: 0.0,
             targets: Vec::new(),
         }
     }
 
-    fn springs(&mut self) -> [&mut Spring; 3] {
-        [&mut self.strength, &mut self.off, &mut self.searching]
+    fn springs(&mut self) -> [&mut Spring; 4] {
+        [
+            &mut self.strength,
+            &mut self.off,
+            &mut self.searching,
+            &mut self.wired,
+        ]
+    }
+
+    fn on_cable(&self) -> bool {
+        self.network.uplink == Uplink::Ethernet
     }
 
     /// Anything short of a carrier reads as searching — that covers scanning,
-    /// associating and DHCP alike.
+    /// associating and DHCP alike. A cable outranks all of it: the radio's
+    /// pose rests while the port is drawn, so it never sweeps unseen.
     fn retarget(&mut self) -> bool {
-        let (strength, off, searching) = match (self.network.radio, &self.network.connected) {
-            (Radio::Off | Radio::HardBlocked | Radio::Absent, _) => (0.0, 1.0, 0.0),
-            (_, Some(joined)) => (joined.strength, 0.0, 0.0),
-            (_, None) => (0.0, 0.0, 1.0),
+        let joined = self
+            .network
+            .connected
+            .as_ref()
+            .map(|joined| joined.strength);
+        let (strength, off, searching) = match (self.on_cable(), self.network.radio, joined) {
+            (true, _, strength) => (strength.unwrap_or(0.0), 0.0, 0.0),
+            (_, Radio::Off | Radio::HardBlocked | Radio::Absent, _) => (0.0, 1.0, 0.0),
+            (_, _, Some(strength)) => (strength, 0.0, 0.0),
+            (_, _, None) => (0.0, 0.0, 1.0),
         };
+        let wired = if self.on_cable() { 1.0 } else { 0.0 };
         self.strength.set_target(strength)
             | self.off.set_target(off)
             | self.searching.set_target(searching)
+            | self.wired.set_target(wired)
+    }
+
+    /// The cable, when one is up or the kernel routes through one.
+    fn ethernet(panel: &mut PanelBuilder<Target>, state: &NetworkState) {
+        if state.wired.is_none() && state.uplink != Uplink::Ethernet {
+            return;
+        }
+        let item = Item::new("Ethernet")
+            .icon(Icon::Rune(Rune::Ethernet))
+            .selected(true);
+        let speed = state.wired.as_ref().and_then(|wired| wired.speed_mbps);
+        panel.row(match speed {
+            Some(mbps) => item.detail(link_speed(mbps)).row(),
+            None => item.row(),
+        });
     }
 
     fn group(&self, panel: &mut PanelBuilder<Target>, title: &str, networks: &[WifiNetwork]) {
@@ -101,7 +137,7 @@ impl BarWidget for WifiWidget {
     }
 
     fn visible(&self) -> bool {
-        self.network.radio != Radio::Absent
+        self.network.radio != Radio::Absent || self.on_cable()
     }
 
     fn icon(&self) -> Icon {
@@ -110,6 +146,7 @@ impl BarWidget for WifiWidget {
             off: self.off.position,
             searching: self.searching.position,
             phase: self.phase,
+            wired: self.wired.position,
         })
     }
 
@@ -139,6 +176,7 @@ impl BarWidget for WifiWidget {
         } else {
             panel.row(header.row());
         }
+        Self::ethernet(&mut panel, &state);
 
         if !state.radio.changeable() {
             panel.row(
@@ -185,7 +223,7 @@ impl BarWidget for WifiWidget {
         panel.row(Row::Separator);
         panel.action(
             Row::Action {
-                label: "Wi-Fi Settings…".into(),
+                label: "Network Settings…".into(),
             },
             Target::Settings,
         );
@@ -264,5 +302,25 @@ impl BarWidget for WifiWidget {
             alive |= !spring.at_rest();
         }
         alive
+    }
+}
+
+/// A negotiated link rate the way a settings pane prints it.
+fn link_speed(mbps: u32) -> String {
+    match mbps {
+        0..1000 => format!("{mbps} Mb/s"),
+        _ => format!("{} Gb/s", mbps as f32 / 1000.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_speeds_read_in_the_largest_whole_unit() {
+        assert_eq!(link_speed(100), "100 Mb/s");
+        assert_eq!(link_speed(1000), "1 Gb/s");
+        assert_eq!(link_speed(2500), "2.5 Gb/s");
     }
 }
