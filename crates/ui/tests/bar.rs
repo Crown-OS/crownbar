@@ -132,3 +132,46 @@ fn a_floating_bar_at_the_bottom_opens_its_panels_upward() {
     app.settle();
     assert!(!app.exists(role(Role::Group).name("Calendar")));
 }
+
+/// The scale of every faded layer in `frame`: the panel's rows while they come out.
+fn fading_scales(frame: &str) -> Vec<f32> {
+    frame
+        .lines()
+        .filter(|line| line.trim_start().starts_with("layer") && line.contains("opacity"))
+        .map(|line| {
+            line.split_once("transform [")
+                .and_then(|(_, rest)| rest.split(',').next()?.parse().ok())
+                .unwrap_or(1.0)
+        })
+        .collect()
+}
+
+fn opening_scales(app: &mut TestApp) -> Vec<Vec<f32>> {
+    let pill = app.find(role(Role::Button).name("clock")).bounds.center();
+    app.pointer_down(pill.x, pill.y).pointer_up(pill.x, pill.y);
+    let scales = (0..4)
+        .map(|_| fading_scales(&app.advance_ms(16).frame_snapshot()))
+        .collect();
+    app.settle();
+    scales
+}
+
+#[test]
+fn the_first_panel_grows_out_of_its_pill_like_every_later_one() {
+    let (mut app, _) = bar();
+    let first = opening_scales(&mut app);
+    app.pointer_down(SURFACE.0 - 20.0, SURFACE.1 - 20.0)
+        .pointer_up(SURFACE.0 - 20.0, SURFACE.1 - 20.0);
+    app.settle();
+    let second = opening_scales(&mut app);
+    assert!(
+        first.iter().flatten().any(|scale| *scale < 1.0),
+        "{first:?}"
+    );
+    let matches = first.len() == second.len()
+        && first
+            .iter()
+            .zip(&second)
+            .all(|(a, b)| a.len() == b.len() && a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3));
+    assert!(matches, "first {first:?}\nsecond {second:?}");
+}

@@ -71,9 +71,22 @@ fn open(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
     if shown != Some(idx) || previous.is_none() {
         popup.motion.update(cx, |motion| motion.open(replacing));
     }
+    if !present {
+        let birth = popup
+            .motion
+            .with(cx, |motion| motion.frame(f64::from(anchor_x), opening(bar)));
+        popup.frame.set(cx, birth);
+    }
     popup.present.set(cx, true);
     cx.set_layer_height(LayerExtent::Output);
     animate(cx, bar, 0);
+}
+
+fn opening(bar: Bar) -> Opening {
+    match bar.config.position {
+        BarPosition::Top => Opening::Down,
+        BarPosition::Bottom => Opening::Up,
+    }
 }
 
 /// Put the panel away, if one is up.
@@ -192,13 +205,14 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
     let anchor_x = popup
         .anchor_x
         .with_untracked(cx, |anchor| f64::from(*anchor));
-    let (top, opening) = match bar.config.position {
-        BarPosition::Top => (f64::from(PANEL_GAP), Opening::Down),
+    let top = match bar.config.position {
+        BarPosition::Top => f64::from(PANEL_GAP),
         BarPosition::Bottom => {
             let host = f64::from(surface.height) - f64::from(host_offset(bar));
-            (host - f64::from(PANEL_GAP) - height, Opening::Up)
+            host - f64::from(PANEL_GAP) - height
         }
     };
+    let opening = opening(bar);
     let target = target_bounds(anchor_x, top, height, f64::from(surface.width));
     let (moving, frame, gone) = popup.motion.update(cx, |motion| {
         motion.reshape(target);
