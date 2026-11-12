@@ -26,6 +26,7 @@ crownotify = { git = "https://github.com/crown-os/crownotify", default-features 
 crownlink-linux = { git = "https://github.com/crown-os/crownlink-linux", default-features = false }
 crownplugin-proto = { git = "https://github.com/crown-os/crownos-plugins" }
 crownplugin-render = { git = "https://github.com/crown-os/crownos-plugins" }
+crownos-protocols = { git = "https://github.com/crown-os/crownos-protocols", features = ["client"] }
 
 anyhow = "1.0.102"
 chrono = "0.4.45"
@@ -49,6 +50,9 @@ view = { path = "../crownui/view" }
 [patch."https://github.com/crown-os/crownos-plugins"]
 crownplugin-proto = { path = "../crownos-plugins/proto" }
 crownplugin-render = { path = "../crownos-plugins/render" }
+
+[patch."https://github.com/crown-os/crownos-protocols"]
+crownos-protocols = { path = "../crownos-protocols" }
 
 [patch."https://github.com/crown-os/crownos-config"]
 crownos-config = { path = "../crownos-config" }

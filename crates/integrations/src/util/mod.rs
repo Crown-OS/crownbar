@@ -6,3 +6,4 @@ pub mod field;
 pub mod proc;
 pub mod sysfs;
 pub mod text;
+pub mod wayland;

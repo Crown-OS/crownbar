@@ -9,13 +9,12 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{self, Write},
-    os::fd::{AsFd, AsRawFd, RawFd},
+    os::fd::AsFd,
 };
 
 use rustix::fs::{MemfdFlags, memfd_create};
-use tokio::io::unix::AsyncFd;
 use wayland_client::{
-    ConnectError, Connection, Dispatch, DispatchError, EventQueue, Proxy, QueueHandle,
+    ConnectError, Connection, Dispatch, Proxy, QueueHandle,
     backend::WaylandError,
     globals::{BindError, GlobalError, GlobalListContents, registry_queue_init},
     protocol::{
@@ -29,7 +28,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
 };
 
 use super::ramp::ramps;
-use crate::util::fd;
+use crate::util::wayland::{Pump, PumpError};
 
 const OUTPUT_VERSION: u32 = 4;
 
@@ -41,8 +40,8 @@ pub enum GammaError {
     Globals(#[from] GlobalError),
     #[error("the compositor does not offer gamma control: {0}")]
     Unsupported(#[from] BindError),
-    #[error("Wayland dispatch failed: {0}")]
-    Dispatch(#[from] DispatchError),
+    #[error(transparent)]
+    Pump(#[from] PumpError),
     #[error("Wayland connection failed: {0}")]
     Wayland(#[from] WaylandError),
     #[error(transparent)]
@@ -50,10 +49,8 @@ pub enum GammaError {
 }
 
 pub struct GammaConnection {
-    connection: Connection,
-    queue: EventQueue<Outputs>,
+    pump: Pump<Outputs>,
     outputs: Outputs,
-    readable: AsyncFd<RawFd>,
 }
 
 struct Outputs {
@@ -91,47 +88,26 @@ impl GammaConnection {
             }
         });
         connection.flush()?;
-        let readable = AsyncFd::new(connection.as_fd().as_raw_fd())?;
         Ok(Self {
-            connection,
-            queue,
+            pump: Pump::new(connection, queue)?,
             outputs,
-            readable,
         })
     }
 
     /// Hold every output at `kelvin`, or release them all with `None`.
     /// Idempotent, so it can follow every snapshot however little changed.
     pub fn hold(&mut self, kelvin: Option<u16>) {
-        let qh = self.queue.handle();
+        let qh = self.pump.handle();
         self.outputs.hold(kelvin, &qh);
-        if let Err(error) = self.connection.flush() {
+        if let Err(error) = self.pump.flush() {
             log::warn!("could not send the gamma ramps: {error}");
         }
     }
 
     /// Waits for the compositor and handles whatever it said: ramp sizes,
     /// outputs coming and going.
-    ///
-    /// libwayland reports a drained socket as a successful read of nothing,
-    /// so readiness is cleared by asking the socket itself; trusting the read
-    /// would leave tokio waking this task in a loop forever.
     pub async fn dispatch(&mut self) -> Result<(), GammaError> {
-        self.queue.dispatch_pending(&mut self.outputs)?;
-        self.connection.flush()?;
-        let mut ready = self.readable.readable().await?;
-        if let Some(guard) = self.queue.prepare_read() {
-            match guard.read() {
-                Ok(_) => {}
-                Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
-                Err(error) => return Err(error.into()),
-            }
-        }
-        if !fd::has_input(self.connection.as_fd())? {
-            ready.clear_ready();
-        }
-        self.queue.dispatch_pending(&mut self.outputs)?;
-        Ok(())
+        Ok(self.pump.dispatch(&mut self.outputs).await?)
     }
 }
 

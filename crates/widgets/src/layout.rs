@@ -1,30 +1,37 @@
-//! Window-layout toggle. Flips between "floating" (windows can overlap and
-//! be repositioned freely) and "tiled" (windows snap to a grid). The actual
-//! compositor switch is out of scope for the bar — for now the widget just
-//! owns the local UI state and surfaces it as a smoothly-animated icon so
-//! the visual treatment is in place when the compositor protocol lands.
+//! Tiling/floating switch for the focused workspace.
+//!
+//! The pill shows the mode the compositor reports, morphing between a loose
+//! scatter of windows and a grid, and a click asks for the other one. Nothing
+//! moves until the compositor answers, so the icon never claims a mode the
+//! workspace is not in.
+
+use std::sync::Arc;
 
 use crate::{BarWidget, Icon, animation::Spring};
-use crownbar_integrations::Services;
+use crownbar_integrations::{
+    Services,
+    workspace_mode::{WorkspaceMode, WorkspaceModeState},
+};
 
 pub struct LayoutWidget {
-    tiled: bool,
+    workspace: Arc<WorkspaceModeState>,
     morph: Spring,
 }
 
 impl LayoutWidget {
-    pub fn new(initial_tiled: bool) -> Self {
-        let value = if initial_tiled { 1.0 } else { 0.0 };
+    pub fn new() -> Self {
+        let workspace = Arc::<WorkspaceModeState>::default();
         Self {
-            tiled: initial_tiled,
-            morph: Spring::new(value),
+            morph: Spring::new(tiled(workspace.mode)),
+            workspace,
         }
     }
 }
 
-impl Default for LayoutWidget {
-    fn default() -> Self {
-        Self::new(false)
+fn tiled(mode: WorkspaceMode) -> f32 {
+    match mode {
+        WorkspaceMode::Tiling => 1.0,
+        WorkspaceMode::Floating => 0.0,
     }
 }
 
@@ -33,16 +40,37 @@ impl BarWidget for LayoutWidget {
         "layout"
     }
 
+    /// A compositor that cannot report the mode gets no pill, rather than a
+    /// switch that silently does nothing.
+    fn visible(&self) -> bool {
+        self.workspace.availability.usable()
+    }
+
     fn icon(&self) -> Icon {
         Icon::Layout {
             tiled: self.morph.position,
         }
     }
 
-    fn on_click(&mut self, _services: &Services) -> bool {
-        self.tiled = !self.tiled;
-        self.morph.set_target(if self.tiled { 1.0 } else { 0.0 });
-        true
+    /// The first mode heard is drawn as it is: the pill appearing should not
+    /// play a switch that never happened.
+    fn sync(&mut self, services: &Services) -> bool {
+        let workspace = services.workspace_mode.read();
+        if Arc::ptr_eq(&workspace, &self.workspace) {
+            return false;
+        }
+        let appearing = !self.visible() && workspace.availability.usable();
+        self.workspace = workspace;
+        let moved = self.morph.set_target(tiled(self.workspace.mode));
+        if appearing {
+            self.morph.snap_to_target();
+        }
+        moved || appearing
+    }
+
+    fn on_click(&mut self, services: &Services) -> bool {
+        services.workspace_mode.send(self.workspace.mode.toggled());
+        false
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {

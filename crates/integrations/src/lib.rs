@@ -26,6 +26,7 @@ pub mod power;
 pub mod screencast;
 pub mod stats;
 pub mod weather;
+pub mod workspace_mode;
 
 pub mod link;
 

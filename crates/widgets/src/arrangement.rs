@@ -56,7 +56,7 @@ fn in_slot(slot: WidgetSlot, entries: &[String]) -> impl Iterator<Item = (Widget
 pub fn builtin(name: &str) -> Option<Box<dyn BarWidget>> {
     let widget: Box<dyn BarWidget> = match name {
         "clock" => Box::new(ClockWidget::new()),
-        "layout" => Box::new(LayoutWidget::new(false)),
+        "layout" => Box::new(LayoutWidget::new()),
         "weather" => Box::new(WeatherWidget::new()),
         "caffeine" => Box::new(CaffeineWidget::new()),
         "volume" => Box::new(VolumeWidget::new()),

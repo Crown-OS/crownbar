@@ -20,6 +20,8 @@ crownotify.workspace = true
 crownlink-linux.workspace = true
 # crownplugind's wire contract.
 crownplugin-proto.workspace = true
+# The workspace-mode switch's protocol, generated from CrownOS's own XML.
+crownos-protocols.workspace = true
 
 anyhow.workspace = true
 chrono.workspace = true

@@ -606,6 +606,7 @@ dependencies = [
  "clap",
  "crownlink-linux",
  "crownos-ipc",
+ "crownos-protocols",
  "crownotify",
  "crownplugin-proto",
  "ddc-hi",

@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 
 use crate::{
     Wake, audio, battery, bluetooth, brightness, bus, caffeine, crownlink, live, network,
-    nightlight, notifications, plugins, power, runtime, screencast, stats, weather,
+    nightlight, notifications, plugins, power, runtime, screencast, stats, weather, workspace_mode,
 };
 
 pub struct Services {
@@ -27,6 +27,7 @@ pub struct Services {
     pub screencast: screencast::Channel,
     pub stats: stats::Channel,
     pub weather: weather::Channel,
+    pub workspace_mode: workspace_mode::Channel,
     /// Dropping this stops every backend.
     _runtime: Runtime,
 }
@@ -82,6 +83,10 @@ impl Services {
         let (weather_backend, weather) = bus::connect(weather::WeatherState::default(), &wake);
         rt.spawn(weather::run(weather_backend));
 
+        let (workspace_mode_backend, workspace_mode) =
+            bus::connect(workspace_mode::WorkspaceModeState::default(), &wake);
+        rt.spawn(workspace_mode::run(workspace_mode_backend));
+
         let (live_backend, live) = bus::connect(live::LiveState::default(), &wake);
         let bridges = live::Bridges {
             audio: audio.tap(),
@@ -107,6 +112,7 @@ impl Services {
             screencast,
             stats,
             weather,
+            workspace_mode,
             _runtime: rt,
         })
     }

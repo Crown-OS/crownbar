@@ -332,17 +332,12 @@ fn a_plugin_pill_follows_its_daemon() {
     });
     assert!(app.exists(role(Role::Button).name("clock")));
 
-    let edited = r#"(left: [], center: ["clock"], right: ["layout"])"#;
+    let edited = r#"(left: [], center: ["clock"], right: [])"#;
     std::fs::write(root.join("config/bar.ron"), edited).expect("bar.ron written");
-    eventually(&mut app, &tasks, "the bar rearranged", |app| {
-        app.exists(role(Role::Button).name("layout"))
+    eventually(&mut app, &tasks, "the clock move to the centre", |app| {
+        let clock = app.find(role(Role::Button).name("clock")).bounds;
+        (clock.min_x() + clock.size.width / 2.0 - SURFACE.0 / 2.0).abs() < 1.0
     });
-    let clock = app.find(role(Role::Button).name("clock")).bounds;
-    let centre = clock.min_x() + clock.size.width / 2.0;
-    assert!(
-        (centre - SURFACE.0 / 2.0).abs() < 1.0,
-        "the clock moved to the centre, at {centre}"
-    );
 
     std::fs::remove_dir_all(root).ok();
 }
