@@ -28,6 +28,8 @@ mod volume;
 mod weather;
 mod wifi;
 
+pub use battery::BAR_HEIGHT as BATTERY_HEIGHT;
+
 use crate::scene::Scene;
 use crownui::prelude::Color;
 use kurbo::Rect;
@@ -38,15 +40,17 @@ use crownbar_widgets::Icon;
 pub const ICON_BOX: f32 = 22.0;
 
 /// The bar's battery cell, reading included, from `origin`, its left edge and
-/// vertical centre.
+/// vertical centre, `height` tall — [`BATTERY_HEIGHT`] give or take the snap
+/// to the pixel grid.
 pub fn draw_battery(
     scene: &mut Scene<'_>,
     origin: kurbo::Point,
+    height: f64,
     state: crownbar_widgets::BatteryState,
     fg: Color,
     p: &Palette,
 ) {
-    battery::draw_bar(scene, origin, state, fg, p);
+    battery::draw_bar(scene, origin, height, state, fg, p);
 }
 
 /// How much room `icon` takes along a pill. Square for all but the battery,

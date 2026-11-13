@@ -51,7 +51,7 @@ const SHELL_W: f64 = BODY_W + NUB_GAP + NUB_W;
 
 /// Height of the cell on the bar. A glyph set beside text rather than a square
 /// icon, so it takes a height of its own instead of [`super::ICON_BOX`].
-pub(super) const BAR_HEIGHT: f64 = 18.0;
+pub const BAR_HEIGHT: f64 = 18.0;
 
 /// How much of the foreground the empty track keeps.
 const TRACK_ALPHA: f32 = 0.5;
@@ -90,15 +90,16 @@ pub(super) fn draw(scene: &mut Scene<'_>, b: Rect, fg: Color, state: BatteryStat
 }
 
 /// The bar's battery: shell, charge, reading and accessory, from `origin`, the
-/// glyph's left edge and vertical centre.
+/// glyph's left edge and vertical centre, `height` tall.
 pub(super) fn draw_bar(
     scene: &mut Scene<'_>,
     origin: Point,
+    height: f64,
     state: BatteryState,
     fg: Color,
     p: &Palette,
 ) {
-    let cell = Cell::new(origin.x, origin.y, BAR_HEIGHT);
+    let cell = Cell::new(origin.x, origin.y, height);
     let charge = charge_color(state, fg, p);
     let knockout = knockout(fg, p);
     cell.shell(scene, state.level, charge, fade(fg, TRACK_ALPHA));

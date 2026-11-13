@@ -59,9 +59,6 @@ pub const WIDGET_GAP: f32 = 4.0;
 pub const FONT_SIZE: f32 = 14.0;
 /// Font weight for widget text.
 pub const FONT_WEIGHT: u16 = 600;
-/// How soft the shadow under the bar's glyphs is, and how far it falls.
-pub const SHADOW_BLUR: f32 = 2.0;
-pub const SHADOW_DROP: f32 = 1.0;
 
 /// Two-stop gradient, projected onto whichever axis a surface catches the
 /// light along.
@@ -321,7 +318,6 @@ mod tests {
                     (ink, ink),
                     "{mode:?} over {level}"
                 );
-                assert_eq!(chip.shadow.a, 0.0);
             }
         }
     }

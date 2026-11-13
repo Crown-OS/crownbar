@@ -11,8 +11,6 @@ use crownui::{
 };
 use kurbo::{Affine, PathEl, Shape};
 
-use crate::theme::{SHADOW_BLUR, SHADOW_DROP, scale_alpha};
-
 /// Path flattening tolerance, in the glyph's own units, for shapes kurbo
 /// describes analytically (circles, arcs).
 const TOLERANCE: f64 = 0.05;
@@ -52,25 +50,11 @@ impl IntoPaint for &Brush {
 
 pub struct Scene<'a> {
     list: &'a mut DrawList,
-    /// Set while the scene records its glyphs' shadow rather than the glyphs.
-    shadow: Option<Color>,
 }
 
 impl<'a> Scene<'a> {
     pub fn new(list: &'a mut DrawList) -> Self {
-        Self { list, shadow: None }
-    }
-
-    /// Records what `draw` paints twice: as a soft shadow in `shadow`, then over
-    /// it as itself.
-    pub fn shadowed(list: &mut DrawList, shadow: Color, draw: impl Fn(&mut Scene)) {
-        if shadow.a > 0.0 {
-            draw(&mut Scene {
-                list: &mut *list,
-                shadow: Some(shadow),
-            });
-        }
-        draw(&mut Scene::new(list));
+        Self { list }
     }
 
     pub fn fill(
@@ -114,13 +98,6 @@ impl<'a> Scene<'a> {
     }
 
     fn draw(&mut self, transform: Affine, command: DrawCommand) {
-        let (transform, command) = match self.shadow {
-            Some(shadow) => (
-                Affine::translate((0.0, f64::from(SHADOW_DROP))) * transform,
-                silhouette(command, shadow),
-            ),
-            None => (transform, command),
-        };
         if transform == Affine::IDENTITY {
             self.list.push(command);
             return;
@@ -129,27 +106,6 @@ impl<'a> Scene<'a> {
         self.list.transform(to_transform(transform));
         self.list.push(command);
         self.list.restore();
-    }
-}
-
-/// `command` painted as `shadow`, blurred, as strong as its own paint is opaque.
-fn silhouette(command: DrawCommand, shadow: Color) -> DrawCommand {
-    let cast = |paint: Paint| {
-        let coverage = match paint.brush {
-            Brush::Solid(color) => color.a,
-            _ => 1.0,
-        };
-        Paint {
-            brush: Brush::Solid(scale_alpha(shadow, coverage)),
-            blur: Some(SHADOW_BLUR),
-        }
-    };
-    match command {
-        DrawCommand::FillPath(path, paint) => DrawCommand::FillPath(path, cast(paint)),
-        DrawCommand::StrokePath(path, stroke, paint) => {
-            DrawCommand::StrokePath(path, stroke, cast(paint))
-        }
-        other => other,
     }
 }
 

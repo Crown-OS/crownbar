@@ -1,6 +1,5 @@
 //! The bar's ink: whichever of a light and a dark glyph reads better over the
-//! wallpaper under a pill, and a shadow that grows as even that one falls
-//! short.
+//! wallpaper under a pill.
 //!
 //! Each pill is judged over its own stretch of the bar, by its worst contrast
 //! there, so a pill over a bright patch can go dark while the rest stay light.
@@ -22,11 +21,6 @@ use crate::{
 const LIGHT: (Color, Color) = (rgb(0xDD_DD_DD), rgb(0xAA_AA_AA));
 const DARK: (Color, Color) = (rgb(0x11_11_11), rgb(0x33_33_33));
 
-/// Contrast at which a glyph needs no help: WCAG's AAA level for body text.
-const ENOUGH_CONTRAST: f32 = 7.0;
-/// The shadow's strength with no contrast left at all.
-const MAX_SHADOW_ALPHA: f32 = 0.9;
-
 /// What the bar's glyphs are drawn over: the wallpaper, under the bar's own
 /// ground at `ground_strength` of its alpha.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -45,8 +39,6 @@ enum Tone {
 pub struct Ink {
     pub fg: Color,
     pub fg_hover: Color,
-    /// Transparent while the ink holds its own.
-    pub shadow: Color,
 }
 
 /// Both inks the bar can draw in, and what each stretch of it is drawn over.
@@ -86,15 +78,14 @@ impl Inks {
             return self.ink(self.fallback);
         };
         let grounds = &grounds[columns(span)];
-        let (tone, contrast) = [Tone::Light, Tone::Dark]
-            .map(|tone| (tone, worst_contrast(self.ink(tone).fg, grounds)))
+        let tone = [Tone::Light, Tone::Dark]
             .into_iter()
-            .max_by(|(_, first), (_, second)| first.total_cmp(second))
-            .unwrap_or((self.fallback, ENOUGH_CONTRAST));
-        Ink {
-            shadow: shadow(tone, contrast),
-            ..self.ink(tone)
-        }
+            .max_by(|&first, &second| {
+                let contrast = |tone| worst_contrast(self.ink(tone).fg, grounds);
+                contrast(first).total_cmp(&contrast(second))
+            })
+            .unwrap_or(self.fallback);
+        self.ink(tone)
     }
 
     fn ink(&self, tone: Tone) -> Ink {
@@ -106,13 +97,9 @@ impl Inks {
 }
 
 impl Ink {
-    /// `fg` idle and under the pointer, over a ground that needs no shadow.
+    /// `fg` idle and under the pointer.
     pub const fn solid(fg: Color) -> Self {
-        Self {
-            fg,
-            fg_hover: fg,
-            shadow: with_alpha(fg, 0.0),
-        }
+        Self { fg, fg_hover: fg }
     }
 
     fn of(tone: Tone, overrides: &ThemeOverrides) -> Self {
@@ -128,7 +115,6 @@ impl Ink {
         Self {
             fg: token("bar.fg", fg),
             fg_hover: token("bar.fg_hover", fg_hover),
-            shadow: with_alpha(fg, 0.0),
         }
     }
 }
@@ -146,18 +132,6 @@ fn worst_contrast(ink: Color, grounds: &[Color]) -> f32 {
         .iter()
         .map(|&ground| contrast_ratio(over(ink, ground), ground))
         .fold(f32::INFINITY, f32::min)
-}
-
-/// The opposite of the ink, stronger the further `contrast` falls short of
-/// [`ENOUGH_CONTRAST`]. Ratios multiply, so the shortfall is measured on a log
-/// scale.
-fn shadow(tone: Tone, contrast: f32) -> Color {
-    let shortfall = (1.0 - contrast.ln() / ENOUGH_CONTRAST.ln()).clamp(0.0, 1.0);
-    let opposite = match tone {
-        Tone::Light => Color::new(0.0, 0.0, 0.0, 1.0),
-        Tone::Dark => Color::new(1.0, 1.0, 1.0, 1.0),
-    };
-    with_alpha(opposite, MAX_SHADOW_ALPHA * shortfall)
 }
 
 #[cfg(test)]
@@ -186,10 +160,9 @@ mod tests {
     }
 
     #[test]
-    fn a_bright_wallpaper_takes_dark_ink_without_a_shadow() {
+    fn a_bright_wallpaper_takes_dark_ink() {
         let ink = over_wallpaper([grey(0.95); SAMPLES]).over(WHOLE_BAR);
         assert_eq!(ink.fg, DARK.0);
-        assert_eq!(ink.shadow.a, 0.0);
     }
 
     #[test]
@@ -201,7 +174,6 @@ mod tests {
         let ink =
             Inks::new(Some(behind), NO_GROUND, false, &ThemeOverrides::default()).over(WHOLE_BAR);
         assert_eq!(ink.fg, LIGHT.0);
-        assert_eq!(ink.shadow.a, 0.0);
     }
 
     #[test]
@@ -209,24 +181,6 @@ mod tests {
         let inks = split();
         assert_eq!(inks.over(0.1..0.3).fg, LIGHT.0);
         assert_eq!(inks.over(0.7..0.9).fg, DARK.0);
-        assert_eq!(inks.over(0.1..0.3).shadow.a, 0.0);
-    }
-
-    #[test]
-    fn the_shadow_deepens_as_contrast_runs_out() {
-        let mid = over_wallpaper([grey(0.5); SAMPLES]).over(WHOLE_BAR);
-        let straddling = split().over(0.4..0.6);
-        assert!(mid.shadow.a > 0.0);
-        assert!(straddling.shadow.a > mid.shadow.a);
-        assert!(straddling.shadow.a <= MAX_SHADOW_ALPHA);
-    }
-
-    #[test]
-    fn the_shadow_is_the_opposite_of_the_ink() {
-        let light = over_wallpaper([grey(0.35); SAMPLES]).over(WHOLE_BAR);
-        let dark = over_wallpaper([grey(0.6); SAMPLES]).over(WHOLE_BAR);
-        assert_eq!((light.fg, light.shadow.r), (LIGHT.0, 0.0));
-        assert_eq!((dark.fg, dark.shadow.r), (DARK.0, 1.0));
     }
 
     #[test]
