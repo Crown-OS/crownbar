@@ -11,11 +11,12 @@ use std::{
 };
 
 use crownlink_linux::ipc::proto::{
-    self, CallInfo, CallStateChanged, CallStatus, DeviceInfo, DevicesChanged, LinkKind, Topic,
+    self, CallInfo, CallStateChanged, CallStatus, DeviceInfo, DevicesChanged, LinkKind,
+    LiveActivitiesChanged, LiveActivity, LiveProgress, LocalRingChanged, Topic,
 };
 use crownos_ipc::{
-    Error, EventMsg, Message, MethodMsg, Server, ServiceBuilder, adapter::tokio::serve_with_outbox,
-    postcard,
+    Error, EventMsg, Kind, Message, MethodMsg, Server, ServiceBuilder,
+    adapter::tokio::serve_with_outbox, postcard,
 };
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -41,10 +42,17 @@ enum Asked {
     Stop(DeviceId, Feature),
     SetHotspot(DeviceId, bool),
     StartMic(DeviceId),
+    LiveAction(DeviceId, String, String),
+    Ring(DeviceId),
+    StopRinging(DeviceId),
+    StopLocalRing,
+    ShareWifi(DeviceId, String),
+    RequestWifi(DeviceId, String),
 }
 
-/// A crownlink that lists `devices`, reports every hotspot on and records
-/// every command instead of carrying it out.
+/// A crownlink that lists `devices`, reports every hotspot on, an upload
+/// going on the first of them and the second ringing this computer, and
+/// records every command instead of carrying it out.
 struct FakeCrownlink {
     events: UnboundedSender<Emit>,
     asked: UnboundedReceiver<Asked>,
@@ -61,7 +69,9 @@ impl FakeCrownlink {
         let task = tokio::spawn(async move {
             let dispatch = move |server: &mut Server, peer, message: Message| {
                 let reply = answer(&devices, &record, &message)?;
-                server.reply(peer, message.req_id, &reply, Vec::new())?;
+                if message.kind == Kind::Request {
+                    server.reply(peer, message.req_id, &reply, Vec::new())?;
+                }
                 Ok(true)
             };
             let _ = serve_with_outbox(
@@ -115,6 +125,16 @@ fn answer(
         let document = (asked.topic == Topic::Hotspot).then_some(hotspot);
         return Ok(postcard::to_stdvec(&document)?);
     }
+    if let Some(asked) = request::<proto::live_activities>(message) {
+        let first = devices.first().is_some_and(|device| device.id == asked.id);
+        let activities: Vec<_> = first.then(|| upload("photos")).into_iter().collect();
+        return Ok(postcard::to_stdvec(&activities)?);
+    }
+    if request::<proto::local_ring>(message).is_some() {
+        return Ok(postcard::to_stdvec(
+            &devices.get(1).map(|device| device.id),
+        )?);
+    }
     let asked = request::<proto::hangup_call>(message)
         .map(|asked| Asked::HangUp(asked.call_id))
         .or_else(|| {
@@ -124,11 +144,53 @@ fn answer(
             request::<proto::set_hotspot>(message)
                 .map(|asked| Asked::SetHotspot(asked.id, asked.enabled))
         })
-        .or_else(|| request::<proto::start_mic>(message).map(|asked| Asked::StartMic(asked.id)));
+        .or_else(|| request::<proto::start_mic>(message).map(|asked| Asked::StartMic(asked.id)))
+        .or_else(|| {
+            request::<proto::live_activity_action>(message)
+                .map(|asked| Asked::LiveAction(asked.id, asked.activity_id, asked.action_id))
+        })
+        .or_else(|| request::<proto::ring_device>(message).map(|asked| Asked::Ring(asked.id)))
+        .or_else(|| {
+            request::<proto::stop_ringing>(message).map(|asked| Asked::StopRinging(asked.id))
+        })
+        .or_else(|| request::<proto::stop_local_ring>(message).map(|_| Asked::StopLocalRing))
+        .or_else(|| {
+            request::<proto::share_wifi>(message)
+                .map(|asked| Asked::ShareWifi(asked.id, asked.ssid))
+        })
+        .or_else(|| {
+            request::<proto::request_wifi>(message)
+                .map(|asked| Asked::RequestWifi(asked.id, asked.ssid))
+        });
     if let Some(asked) = asked {
         let _ = record.send(asked);
     }
     Ok(Vec::new())
+}
+
+fn upload(id: &str) -> LiveActivity {
+    LiveActivity {
+        id: id.to_owned(),
+        package: "com.google.android.apps.photos".to_owned(),
+        app: "Photos".to_owned(),
+        title: "Backing up".to_owned(),
+        text: "12 of 40".to_owned(),
+        short_text: None,
+        category: Some("progress".to_owned()),
+        progress: Some(LiveProgress {
+            value: 12,
+            max: 40,
+            indeterminate: false,
+        }),
+        chronometer: None,
+        promoted: false,
+        color_argb: None,
+        actions: vec![proto::LiveAction {
+            id: "pause".to_owned(),
+            label: "Pause".to_owned(),
+            accepts_text: false,
+        }],
+    }
 }
 
 fn phone(id: DeviceId, name: &str, active: &[Feature]) -> DeviceInfo {
@@ -294,6 +356,108 @@ async fn controls_reach_the_device_they_name() -> Result<(), Error> {
     });
     let state = until(&channel, |state| state.devices.is_empty()).await;
     assert!(state.availability.usable());
+    let _ = std::fs::remove_dir_all(directory);
+    Ok(())
+}
+
+fn activity_ids(state: &PhoneState, id: DeviceId) -> Vec<String> {
+    state
+        .device(id)
+        .map(|device| {
+            device
+                .activities
+                .iter()
+                .map(|activity| activity.id.to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn activities_and_a_ring_are_pulled_on_connect_then_followed() -> Result<(), Error> {
+    let directory = private_directory();
+    let mut crownlink = FakeCrownlink::start(
+        &directory,
+        vec![
+            phone(PIXEL, "Pixel 8", &[]),
+            phone(ONEPLUS, "OnePlus 11 5G", &[]),
+        ],
+    )?;
+    let channel = start_service(&directory);
+
+    let state = until(&channel, |state| {
+        state.devices.len() == 2 && state.ringing_here.is_some()
+    })
+    .await;
+    assert_eq!(state.ringing_here, Some(ONEPLUS));
+    assert_eq!(activity_ids(&state, PIXEL), ["photos"]);
+    assert!(activity_ids(&state, ONEPLUS).is_empty());
+
+    crownlink.emit(LiveActivitiesChanged {
+        id: ONEPLUS,
+        activities: vec![upload("drive")],
+    });
+    crownlink.emit(LocalRingChanged { by: None });
+    let state = until(&channel, |state| {
+        state.ringing_here.is_none() && !activity_ids(state, ONEPLUS).is_empty()
+    })
+    .await;
+    assert_eq!(activity_ids(&state, ONEPLUS), ["drive"]);
+
+    channel.send(PhoneCommand::LiveAction(
+        ONEPLUS,
+        Arc::from("drive"),
+        Arc::from("pause"),
+    ));
+    channel.send(PhoneCommand::RingDevice(DeviceId([9; 32])));
+    channel.send(PhoneCommand::RingDevice(PIXEL));
+    channel.send(PhoneCommand::StopRinging(PIXEL));
+    channel.send(PhoneCommand::StopLocalRing);
+    channel.send(PhoneCommand::ShareWifi(PIXEL, Arc::from("Home")));
+    channel.send(PhoneCommand::RequestWifi(ONEPLUS, Arc::from("Café")));
+    let expected = [
+        Asked::LiveAction(ONEPLUS, "drive".to_owned(), "pause".to_owned()),
+        Asked::Ring(PIXEL),
+        Asked::StopRinging(PIXEL),
+        Asked::StopLocalRing,
+        Asked::ShareWifi(PIXEL, "Home".to_owned()),
+        Asked::RequestWifi(ONEPLUS, "Café".to_owned()),
+    ];
+    for asked in expected {
+        assert_eq!(crownlink.next_asked().await, Some(asked));
+    }
+    let _ = std::fs::remove_dir_all(directory);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_crownlink_without_live_activities_still_lists_its_devices() -> Result<(), Error> {
+    let directory = private_directory();
+    let mut server = ServiceBuilder::new(proto::SERVICE)
+        .directory(&directory)
+        .build()?;
+    let devices = vec![phone(PIXEL, "Pixel 8", &[])];
+    let task = tokio::spawn(async move {
+        let dispatch = move |server: &mut Server, peer, message: Message| {
+            if request::<proto::devices>(&message).is_some() {
+                let listing = postcard::to_stdvec(&devices)?;
+                server.reply(peer, message.req_id, &listing, Vec::new())?;
+            } else if request::<proto::state>(&message).is_some() {
+                let document = postcard::to_stdvec(&None::<Vec<u8>>)?;
+                server.reply(peer, message.req_id, &document, Vec::new())?;
+            } else {
+                let refusal = crownos_ipc::RemoteError::unknown_method(message.selector);
+                server.reply_err(peer, message.req_id, &refusal)?;
+            }
+            Ok(true)
+        };
+        let _ = crownos_ipc::adapter::tokio::serve(&mut server, dispatch).await;
+    });
+    let channel = start_service(&directory);
+    let state = until(&channel, |state| state.devices.len() == 1).await;
+    assert!(state.availability.usable());
+    assert!(activity_ids(&state, PIXEL).is_empty());
+    task.abort();
     let _ = std::fs::remove_dir_all(directory);
     Ok(())
 }

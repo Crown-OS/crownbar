@@ -406,6 +406,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture"
+version = "0.1.1"
+dependencies = [
+ "crowntest",
+ "geometry",
+ "graphics",
+ "impeller",
+ "inspect",
+ "libc",
+ "runtime",
+ "semantics",
+ "serde",
+ "serde_json",
+ "taffy-layout",
+ "thiserror",
+ "view",
+ "windowing",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -618,6 +638,7 @@ dependencies = [
  "reqwest",
  "rustix",
  "serde",
+ "suja-proto",
  "thiserror",
  "tokio",
  "wayland-client",
@@ -630,6 +651,8 @@ name = "crownbar-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "capture",
+ "chrono",
  "crownbar-config",
  "crownbar-integrations",
  "crownbar-widgets",
@@ -637,6 +660,7 @@ dependencies = [
  "crownos-ipc",
  "crownplugin-proto",
  "crownplugin-render",
+ "crownplugin-view",
  "crowntest",
  "crownui",
  "image",
@@ -661,6 +685,7 @@ dependencies = [
  "crownplugin-proto",
  "crownui",
  "log",
+ "suja-proto",
 ]
 
 [[package]]
@@ -1369,6 +1394,7 @@ name = "graphics"
 version = "0.1.1"
 dependencies = [
  "geometry",
+ "rustc-hash",
  "smallvec",
  "thiserror",
 ]
@@ -1725,6 +1751,7 @@ dependencies = [
  "khronos-egl",
  "png",
  "raw-window-handle",
+ "rustc-hash",
  "thiserror",
  "tracing",
  "wayland-egl",
@@ -2821,6 +2848,7 @@ dependencies = [
  "inspect",
  "layouting",
  "motion",
+ "rustc-hash",
  "semantics",
  "thiserror",
  "tokio",
@@ -3153,6 +3181,14 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "suja-proto"
+version = "0.1.0"
+dependencies = [
+ "crownos-ipc",
+ "serde",
+]
 
 [[package]]
 name = "svgtypes"

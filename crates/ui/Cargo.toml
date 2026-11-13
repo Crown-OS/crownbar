@@ -24,6 +24,11 @@ ttf-parser = "0.25"
 
 [dev-dependencies]
 anyhow.workspace = true
+# Headless design captures for the CrownOS-Design Figma file.
+capture = { path = "../../../crownui/capture" }
+chrono.workspace = true
+# Plugin trees for the captures, styled the way a plugin writes them.
+crownplugin-view = { path = "../../../crownos-plugins/view" }
 crownos-ipc.workspace = true
 crowntest.workspace = true
 # The offscreen renderer behind `cargo run --example render`.

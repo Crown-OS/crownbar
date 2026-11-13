@@ -43,11 +43,16 @@ impl Session {
         client.subscribe::<proto::HotspotChanged>().await.ok()?;
         client.subscribe::<proto::FeatureChanged>().await.ok()?;
         client.subscribe::<proto::FeatureFailed>().await.ok()?;
+        client
+            .subscribe::<proto::LiveActivitiesChanged>()
+            .await
+            .ok()?;
+        client.subscribe::<proto::LocalRingChanged>().await.ok()?;
         Some(Self {
             client,
             state: PhoneState {
                 availability: Availability::Ready,
-                devices: Vec::new(),
+                ..PhoneState::default()
             },
             unanswered: Vec::new(),
         })
@@ -120,6 +125,11 @@ impl Session {
             .call::<proto::devices>(&proto::devices {}, Vec::new())
             .await?;
         let arrived = self.state.seed(listing);
+        self.state.ringing_here = self
+            .pull(&proto::local_ring {})
+            .await?
+            .flatten()
+            .or(self.state.ringing_here);
         self.probe(arrived).await
     }
 
@@ -133,27 +143,39 @@ impl Session {
                 &topic::calls(calls.as_deref()),
                 Instant::now(),
             );
+            let activities = self.pull(&proto::live_activities { id }).await?;
+            self.state
+                .seed_activities(id, activities.unwrap_or_default());
         }
         Ok(())
     }
 
-    /// A device that left between the listing and the probe is refused, which
-    /// is no reason to drop the connection.
-    async fn topic(&mut self, id: DeviceId, topic: Topic) -> Result<Option<Vec<u8>>, Error> {
-        match self
-            .client
-            .call::<proto::state>(&proto::state { id, topic }, Vec::new())
-            .await
-        {
+    /// What a pull answers; `None` when crownlink refuses it — a device that
+    /// left between the listing and the probe, or a feature this crownlink
+    /// does not serve — which is no reason to drop the connection.
+    async fn pull<M: MethodMsg<Args = M>>(
+        &mut self,
+        message: &M,
+    ) -> Result<Option<M::Reply>, Error> {
+        match self.client.call::<M>(message, Vec::new()).await {
             Err(Error::Remote(_)) => Ok(None),
-            outcome => outcome,
+            outcome => outcome.map(Some),
         }
+    }
+
+    async fn topic(&mut self, id: DeviceId, topic: Topic) -> Result<Option<Vec<u8>>, Error> {
+        Ok(self.pull(&proto::state { id, topic }).await?.flatten())
     }
 
     /// Commands about a device that is no longer linked are dropped here
     /// rather than refused by crownlink.
     fn send(&mut self, command: PhoneCommand) -> Result<(), Error> {
-        let id = command.device();
+        let Some(id) = command.device() else {
+            return self
+                .client
+                .client_mut()
+                .notify::<proto::stop_local_ring>(&proto::stop_local_ring {}, Vec::new());
+        };
         if self.state.device(id).is_none() {
             return Ok(());
         }
@@ -189,6 +211,24 @@ impl Session {
                     None => Ok(()),
                 }
             }
+            PhoneCommand::LiveAction(_, activity_id, action_id) => {
+                self.request(&proto::live_activity_action {
+                    id,
+                    activity_id: activity_id.to_string(),
+                    action_id: action_id.to_string(),
+                })
+            }
+            PhoneCommand::RingDevice(_) => self.request(&proto::ring_device { id }),
+            PhoneCommand::StopRinging(_) => self.request(&proto::stop_ringing { id }),
+            PhoneCommand::ShareWifi(_, ssid) => self.request(&proto::share_wifi {
+                id,
+                ssid: ssid.to_string(),
+            }),
+            PhoneCommand::RequestWifi(_, ssid) => self.request(&proto::request_wifi {
+                id,
+                ssid: ssid.to_string(),
+            }),
+            PhoneCommand::StopLocalRing => Ok(()),
         }
     }
 
@@ -231,4 +271,6 @@ fn decode(message: &Message) -> Option<Event> {
         .or_else(|| as_event(message, Event::HotspotChanged))
         .or_else(|| as_event(message, Event::FeatureChanged))
         .or_else(|| as_event(message, Event::FeatureFailed))
+        .or_else(|| as_event(message, Event::LiveActivitiesChanged))
+        .or_else(|| as_event(message, Event::LocalRingChanged))
 }

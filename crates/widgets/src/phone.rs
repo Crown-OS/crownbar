@@ -100,6 +100,7 @@ pub(crate) mod fixture {
             allowed: Feature::ALL.into_iter().collect(),
             active: FeatureSet::EMPTY,
             call: None,
+            activities: Vec::new(),
         }
     }
 

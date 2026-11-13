@@ -7,7 +7,12 @@
 //! arcs, or an Ethernet port once a cable carries the traffic.
 //!
 //! The panel also lists every linked phone that can share its connection,
-//! each with a switch for the phone's own hotspot — not this computer's.
+//! each with a switch for the phone's own hotspot — not this computer's. A
+//! phone that shares Wi-Fi passwords is asked for the password of a locked
+//! network this computer has never joined, and can be sent the password of
+//! the network this computer is on.
+
+use std::sync::Arc;
 
 use crate::{
     AfterAction, BarWidget, Icon, PopupAction, PopupSpec, Rune, WifiState,
@@ -25,6 +30,8 @@ use crownbar_integrations::{
 
 /// One scanning sweep, in seconds.
 const SWEEP_SECS: f32 = 1.4;
+/// The heading over the phones the joined network's password can be sent to.
+const SHARE_SECTION: &str = "Share Wi-Fi Password";
 pub struct WifiWidget {
     network: Snapshot<NetworkState>,
     phones: Snapshot<PhoneState>,
@@ -43,6 +50,10 @@ enum Target {
     Join(String),
     /// Needs a password the bar has nowhere to type, so it hands off.
     Handoff,
+    /// Needs a password a linked phone may know: ask it.
+    AskPhone(DeviceId, String),
+    /// Send the joined network's password to a linked phone.
+    Share(DeviceId, String),
     /// A linked phone's own hotspot.
     Hotspot(DeviceId),
     Settings,
@@ -122,7 +133,14 @@ impl WifiWidget {
         });
     }
 
-    fn group(&self, panel: &mut PanelBuilder<Target>, title: &str, networks: &[WifiNetwork]) {
+    /// `asker` is the phone to ask for a password this computer lacks.
+    fn group(
+        &self,
+        panel: &mut PanelBuilder<Target>,
+        title: &str,
+        networks: &[WifiNetwork],
+        asker: Option<&PhoneDevice>,
+    ) {
         if networks.is_empty() {
             return;
         }
@@ -132,20 +150,22 @@ impl WifiWidget {
             chevron: false,
         });
         for network in networks {
-            panel.action(
-                Item::new(&network.ssid)
-                    .icon(Icon::Rune(Rune::Wifi))
-                    // macOS flags an open network, and weak ciphers deserve
-                    // the same warning.
-                    .warning(!network.secured || network.weak)
-                    .signal(network.strength)
-                    .busy(self.network.pending.as_deref() == Some(network.ssid.as_str()))
-                    .row(),
-                match self.network.joinable(&network.ssid) {
-                    true => Target::Join(network.ssid.clone()),
-                    false => Target::Handoff,
-                },
-            );
+            let item = Item::new(&network.ssid)
+                .icon(Icon::Rune(Rune::Wifi))
+                // macOS flags an open network, and weak ciphers deserve the
+                // same warning.
+                .warning(!network.secured || network.weak)
+                .signal(network.strength)
+                .busy(self.network.pending.as_deref() == Some(network.ssid.as_str()));
+            let (item, target) = match (self.network.joinable(&network.ssid), asker) {
+                (true, _) => (item, Target::Join(network.ssid.clone())),
+                (false, Some(phone)) if !network.enterprise => (
+                    item.detail(format!("Ask {}", phone.name)),
+                    Target::AskPhone(phone.id, network.ssid.clone()),
+                ),
+                (false, _) => (item, Target::Handoff),
+            };
+            panel.action(item.row(), target);
         }
     }
 
@@ -184,8 +204,9 @@ impl WifiWidget {
                     Target::Join(joined.ssid.clone()),
                 );
             }
-            self.group(&mut panel, "Known Network", &state.known);
-            self.group(&mut panel, "Other Networks", &state.others);
+            let asker = phone::allowing(&phones.devices, Feature::WifiSharing).next();
+            self.group(&mut panel, "Known Network", &state.known, asker);
+            self.group(&mut panel, "Other Networks", &state.others, asker);
 
             if state.connected.is_none() && state.known.is_empty() && state.others.is_empty() {
                 panel.row(
@@ -206,6 +227,9 @@ impl WifiWidget {
             );
         }
 
+        if let Some(joined) = state.connected.as_ref().filter(|joined| joined.secured) {
+            share_targets(&mut panel, &phones.devices, &joined.ssid);
+        }
         hotspots(&mut panel, &phones.devices);
 
         panel.row(Row::Separator);
@@ -312,6 +336,22 @@ impl BarWidget for WifiWidget {
                     link::open(SettingsPane::Network);
                     AfterAction::Close
                 }
+                // The phone asks its user; the network turns up saved here
+                // once they agree.
+                Some(Target::AskPhone(id, ssid)) => {
+                    services
+                        .crownlink
+                        .send(PhoneCommand::RequestWifi(id, Arc::from(ssid)));
+                    AfterAction::Close
+                }
+                // crownlink confirms with a notification before anything
+                // leaves this computer.
+                Some(Target::Share(id, ssid)) => {
+                    services
+                        .crownlink
+                        .send(PhoneCommand::ShareWifi(id, Arc::from(ssid)));
+                    AfterAction::Close
+                }
                 Some(Target::Hotspot(_)) | None => AfterAction::Stay,
             },
             PopupAction::Slide { .. } => AfterAction::Stay,
@@ -344,6 +384,22 @@ impl BarWidget for WifiWidget {
             alive |= !spring.at_rest();
         }
         alive
+    }
+}
+
+/// "Share Wi-Fi Password": every linked device that takes Wi-Fi passwords,
+/// each sent the joined network's on a click.
+fn share_targets(panel: &mut PanelBuilder<Target>, devices: &[PhoneDevice], ssid: &str) {
+    let mut takers = phone::allowing(devices, Feature::WifiSharing).peekable();
+    if takers.peek().is_none() {
+        return;
+    }
+    phone::section(panel, SHARE_SECTION);
+    for device in takers {
+        panel.action(
+            phone::item(device, Feature::WifiSharing).detail(ssid).row(),
+            Target::Share(device.id, ssid.to_owned()),
+        );
     }
 }
 

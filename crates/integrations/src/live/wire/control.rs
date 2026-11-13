@@ -16,6 +16,8 @@ pub enum Control {
     Stop,
     Dismiss,
     HangUp,
+    /// The activity's own button at this index, labelled by the activity.
+    Action(u8),
 }
 
 impl Control {
@@ -34,6 +36,7 @@ impl Control {
             Self::Stop => "Stop",
             Self::Dismiss => "Dismiss",
             Self::HangUp => "Hang Up",
+            Self::Action(_) => "Open",
         }
     }
 }

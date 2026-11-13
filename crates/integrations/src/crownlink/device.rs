@@ -4,7 +4,7 @@ use crownlink_linux::ipc::proto::{
     Battery, DeviceClass, DeviceId, DeviceInfo, Feature, FeatureSet,
 };
 
-use crate::crownlink::{PhoneCall, Stream};
+use crate::crownlink::{PhoneActivity, PhoneCall, Stream};
 
 /// One device linked to this computer right now.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +22,8 @@ pub struct PhoneDevice {
     pub active: FeatureSet,
     /// An answered call on the device's phone line.
     pub call: Option<PhoneCall>,
+    /// What is ongoing on the device, most important first.
+    pub activities: Vec<PhoneActivity>,
 }
 
 impl PhoneDevice {
@@ -35,11 +37,13 @@ impl PhoneDevice {
             allowed: info.features,
             active: info.active,
             call: None,
+            activities: Vec::new(),
         }
     }
 
     /// The listing's word on everything it carries; what only events carry —
-    /// the hotspot and the call — is kept.
+    /// the hotspot, the call and the activities — is kept, unless the device
+    /// no longer shares its activities.
     pub(super) fn refresh(&mut self, info: DeviceInfo) {
         if *self.name != *info.name {
             self.name = Arc::from(info.name);
@@ -48,6 +52,9 @@ impl PhoneDevice {
         self.battery = info.battery.or(self.battery);
         self.allowed = info.features;
         self.active = info.active;
+        if !self.allows(Feature::LiveActivities) {
+            self.activities.clear();
+        }
     }
 
     pub fn allows(&self, feature: Feature) -> bool {

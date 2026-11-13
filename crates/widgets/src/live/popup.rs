@@ -73,7 +73,7 @@ pub fn panel(
         panel.row(Row::Separator);
     }
     for control in &activity.controls {
-        panel.action(action_row(*control), Target::Control(*control));
+        panel.action(action_row(activity, *control), Target::Control(*control));
     }
     panel.finish()
 }
@@ -108,10 +108,11 @@ fn camera_sources(panel: &mut PanelBuilder<Target>, phones: &[PhoneDevice]) {
 /// The lens crownlink starts a phone's webcam on.
 const WEBCAM_LENS: &str = "Front Camera";
 
-fn action_row(control: Control) -> Row {
+fn action_row(activity: &Activity, control: Control) -> Row {
+    let label = activity.control_label(control);
     match control {
-        Control::HangUp => Row::destructive(control.label()),
-        _ => Row::action(control.label()),
+        Control::HangUp => Row::destructive(label),
+        _ => Row::action(label),
     }
 }
 
@@ -124,12 +125,16 @@ pub fn row(action: PopupAction) -> usize {
 }
 
 /// Whether the panel goes once `control` is done: an activity that ends
-/// takes its panel with it.
+/// takes its panel with it, and an activity's own button acts on the device
+/// it came from.
 pub fn after(control: Control) -> AfterAction {
     match control {
-        Control::Cancel | Control::Dismiss | Control::Reset | Control::Stop | Control::HangUp => {
-            AfterAction::Close
-        }
+        Control::Cancel
+        | Control::Dismiss
+        | Control::Reset
+        | Control::Stop
+        | Control::HangUp
+        | Control::Action(_) => AfterAction::Close,
         _ => AfterAction::Stay,
     }
 }
@@ -253,5 +258,26 @@ mod tests {
             Some(&Some(Target::Control(Control::HangUp)))
         );
         assert_eq!(after(Control::HangUp), AfterAction::Close);
+    }
+
+    #[test]
+    fn an_activity_s_own_buttons_read_as_it_labels_them() {
+        let delivery = activity(Origin::Phone, "0202/activity/eats", Glyph::Phone, &[])
+            .actions([Arc::from("Track"), Arc::from("Help")]);
+        let (spec, targets) = panel(&delivery, &[], Instant::now());
+        let labels: Vec<_> = spec
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                Row::Action { label, .. } => Some(label.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(labels, ["Track", "Help"]);
+        assert_eq!(
+            targets.last(),
+            Some(&Some(Target::Control(Control::Action(1))))
+        );
+        assert_eq!(after(Control::Action(1)), AfterAction::Close);
     }
 }

@@ -131,6 +131,8 @@ pub struct Activity {
     pub progress: Option<Progress>,
     pub details: Vec<Detail>,
     pub controls: Vec<Control>,
+    /// What each [`Control::Action`] says, by its index.
+    pub action_labels: Vec<Arc<str>>,
     /// The progress ring can be dragged: a track's position.
     pub seekable: bool,
 }
@@ -148,6 +150,7 @@ impl Activity {
             progress: None,
             details: Vec::new(),
             controls: Vec::new(),
+            action_labels: Vec::new(),
             seekable: false,
         }
     }
@@ -194,6 +197,29 @@ impl Activity {
     pub fn controls(mut self, controls: impl IntoIterator<Item = Control>) -> Self {
         self.controls.extend(controls);
         self
+    }
+
+    /// Buttons of the activity's own, labelled `labels`, after its controls.
+    pub fn actions(mut self, labels: impl IntoIterator<Item = Arc<str>>) -> Self {
+        for label in labels {
+            let Ok(index) = u8::try_from(self.action_labels.len()) else {
+                break;
+            };
+            self.action_labels.push(label);
+            self.controls.push(Control::Action(index));
+        }
+        self
+    }
+
+    /// What the row for `control` says.
+    pub fn control_label(&self, control: Control) -> &str {
+        match control {
+            Control::Action(index) => self
+                .action_labels
+                .get(usize::from(index))
+                .map_or(control.label(), |label| label),
+            _ => control.label(),
+        }
     }
 
     pub fn seekable(mut self) -> Self {

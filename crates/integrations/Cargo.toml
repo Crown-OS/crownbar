@@ -22,6 +22,7 @@ crownlink-linux.workspace = true
 crownplugin-proto.workspace = true
 # The workspace-mode switch's protocol, generated from CrownOS's own XML.
 crownos-protocols.workspace = true
+suja-proto.workspace = true
 
 anyhow.workspace = true
 chrono.workspace = true

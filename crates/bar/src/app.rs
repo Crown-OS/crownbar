@@ -1,11 +1,6 @@
 use anyhow::{Context, Result};
-use crownbar_config::{BAR_NAMESPACE, BarConfig, BarPosition, BarSettings};
+use crownbar_config::{BarConfig, BarSettings};
 use crownbar_integrations::{Services, Wake};
-use crownbar_ui::{PANEL_GAP, theme};
-use crownui::{
-    AppConfig, kit,
-    prelude::{Anchor, Layer, LayerExtent, LayerOptions, TRANSPARENT},
-};
 
 pub fn run() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -19,24 +14,7 @@ pub fn run() -> Result<()> {
     let wake = Wake::default();
     let services = Services::start(wake.clone())?;
 
-    let edge = match bar_config.position {
-        BarPosition::Top => Anchor::TOP,
-        BarPosition::Bottom => Anchor::BOTTOM,
-    };
-    let layer = LayerOptions::new(BAR_NAMESPACE, edge | Anchor::LEFT | Anchor::RIGHT)
-        .layer(Layer::Top)
-        // Only the bar's strip until a panel opens: the surface grows to the
-        // whole output while one is up (see `popup`).
-        .height(LayerExtent::Fixed(bar_config.reach()))
-        .exclusive_zone(bar_config.reach() as i32 - PANEL_GAP as i32);
-    let config = AppConfig::new("CrownBar")
-        .app_id(BAR_NAMESPACE)
-        .size(1280, bar_config.bar_height.max(1) * 18)
-        .clear_color(TRANSPARENT)
-        .font(kit::inter_font().to_vec(), Some(kit::INTER_FAMILY))
-        .accessibility(false)
-        .corner_shape(theme::CORNER_SHAPE)
-        .layer(layer);
+    let config = crownbar_ui::app_config(&bar_config);
 
     crownui::run(
         crownbar_ui::root(services, wake, appearance, settings),

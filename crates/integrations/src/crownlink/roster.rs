@@ -5,15 +5,18 @@
 
 use std::{collections::HashSet, time::Instant};
 
-use crownlink_linux::ipc::proto::{Battery, CallInfo, DeviceId, DeviceInfo, Event, FeatureState};
+use crownlink_linux::ipc::proto::{
+    Battery, CallInfo, DeviceId, DeviceInfo, Event, Feature, FeatureState, LiveActivity,
+};
 
-use crate::crownlink::{PhoneDevice, PhoneState, call};
+use crate::crownlink::{PhoneDevice, PhoneState, activity, call};
 
 /// What the session must fetch before the state is whole again.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Followup {
     Settled,
-    /// Devices that just arrived, whose hotspot and call no listing carries.
+    /// Devices that just arrived, whose hotspot, call and activities no
+    /// listing carries.
     Probe(Vec<DeviceId>),
     /// A device the bar has never been told about came online.
     Relist,
@@ -77,6 +80,16 @@ impl PhoneState {
         }
     }
 
+    /// A device's activities as a pull found them. An event that beat the
+    /// pull here is newer, so it wins.
+    pub(super) fn seed_activities(&mut self, id: DeviceId, live: Vec<LiveActivity>) {
+        if let Some(device) = self.device_mut(id)
+            && device.activities.is_empty()
+        {
+            follow_activities(device, live);
+        }
+    }
+
     pub(crate) fn apply(&mut self, event: Event, now: Instant) -> Followup {
         match event {
             Event::DevicesChanged(changed) => return Followup::Probe(self.seed(changed.devices)),
@@ -120,12 +133,33 @@ impl PhoneState {
                     device.set_active(event.feature, false);
                 }
             }
+            Event::LiveActivitiesChanged(event) => {
+                if let Some(device) = self.device_mut(event.id) {
+                    follow_activities(device, event.activities);
+                }
+            }
+            Event::LocalRingChanged(event) => self.ringing_here = event.by,
             Event::DeviceConnected(_)
             | Event::PairingRequest(_)
             | Event::PairingResult(_)
-            | Event::MediaChanged(_) => {}
+            | Event::MediaChanged(_)
+            | Event::MessageChanged(_)
+            | Event::CollectionsChanged(_)
+            | Event::CaptureFinished(_)
+            | Event::TransferChanged(_)
+            | Event::AudioRoutesChanged(_)
+            | Event::FocusChanged(_)
+            | Event::WifiReceived(_) => {}
         }
         Followup::Settled
+    }
+}
+
+/// A device that does not share its activities shows none, whatever it sent.
+fn follow_activities(device: &mut PhoneDevice, live: Vec<LiveActivity>) {
+    match device.allows(Feature::LiveActivities) {
+        true => activity::follow(&mut device.activities, live),
+        false => device.activities.clear(),
     }
 }
 

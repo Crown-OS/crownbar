@@ -1,4 +1,5 @@
 pub mod animation;
+mod assistant;
 mod battery;
 mod bluetooth;
 mod brightness;
@@ -106,6 +107,24 @@ pub enum Icon {
     /// these — a headphone, a laptop, a chevron — and they would each need a
     /// variant of their own otherwise.
     Rune(Rune),
+    /// The voice assistant's companion: a dot that breathes with the
+    /// microphone, spins while thinking and ripples while speaking.
+    Orb {
+        level: f32,
+        phase: f32,
+        mood: OrbMood,
+    },
+}
+
+/// What the assistant is doing, as the orb shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrbMood {
+    #[default]
+    Idle,
+    Listening,
+    Thinking,
+    Speaking,
+    Tool,
 }
 
 /// Static glyphs shared by the popup panels. Geometry lives in

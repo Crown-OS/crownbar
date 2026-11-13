@@ -27,6 +27,8 @@ crownlink-linux = { git = "https://github.com/crown-os/crownlink-linux", default
 crownplugin-proto = { git = "https://github.com/crown-os/crownos-plugins" }
 crownplugin-render = { git = "https://github.com/crown-os/crownos-plugins" }
 crownos-protocols = { git = "https://github.com/crown-os/crownos-protocols", features = ["client"] }
+# Switch to git = "https://github.com/crown-os/suja" once the repository is published.
+suja-proto = { path = "../suja/crates/suja-proto" }
 
 anyhow = "1.0.102"
 chrono = "0.4.45"

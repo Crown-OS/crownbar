@@ -19,6 +19,7 @@ mod layout;
 mod live;
 mod notifications;
 mod numerals;
+mod orb;
 mod rune;
 mod screenshare;
 mod signal;
@@ -124,6 +125,15 @@ pub fn draw_in(scene: &mut Scene<'_>, icon: Icon, bounds: Rect, fg: Color, p: &P
         ),
         Icon::Signal { strength } => signal::draw(scene, bounds, fg, strength),
         Icon::Rune(r) => rune::draw(scene, bounds, fg, r),
+        Icon::Orb { level, phase, mood } => orb::draw(
+            scene,
+            bounds,
+            fg,
+            p.accent(crownbar_integrations::live::Accent::Violet),
+            level,
+            phase,
+            mood,
+        ),
     }
 }
 

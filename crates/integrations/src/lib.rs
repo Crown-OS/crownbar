@@ -11,6 +11,7 @@
 //! and pushes commands back down an unbounded pipe. No service call ever runs
 //! on the event loop thread.
 
+pub mod assistant;
 pub mod audio;
 pub mod battery;
 pub mod bluetooth;
@@ -39,6 +40,6 @@ mod status;
 mod util;
 
 pub use bus::Wake;
-pub use hub::Services;
+pub use hub::{Services, Snapshots};
 pub use link::SettingsPane;
 pub use status::{Availability, ErrorKind, Failure, Interest};

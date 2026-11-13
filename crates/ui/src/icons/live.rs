@@ -41,6 +41,7 @@ fn art(glyph: Glyph) -> &'static Art {
         Glyph::Webcam => &WEBCAM_01,
         Glyph::Mirror => &PHONE_01,
         Glyph::ExternalDisplay => &MONITOR_05,
+        Glyph::Phone => &PHONE_01,
     }
 }
 
@@ -109,7 +110,7 @@ mod tests {
     use super::*;
     use crate::icons::tests::{BOX, INK, commands_drawn};
 
-    const ALL: [Glyph; 18] = [
+    const ALL: [Glyph; 19] = [
         Glyph::Sparkles,
         Glyph::Stopwatch,
         Glyph::Timer,
@@ -128,6 +129,7 @@ mod tests {
         Glyph::Webcam,
         Glyph::Mirror,
         Glyph::ExternalDisplay,
+        Glyph::Phone,
     ];
 
     #[test]

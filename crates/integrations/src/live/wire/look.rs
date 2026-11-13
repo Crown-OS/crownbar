@@ -23,6 +23,8 @@ pub enum Glyph {
     Webcam,
     Mirror,
     ExternalDisplay,
+    /// Something ongoing on a linked phone.
+    Phone,
 }
 
 /// The hue a chip is tinted with. The bar resolves it against its palette.

@@ -6,6 +6,7 @@
 //! while a panel is up, the whole area beside it, which is what makes a click
 //! outside a panel a dismissal rather than a click on the window underneath.
 
+mod app_config;
 mod backdrop;
 mod bar;
 mod frames;
@@ -36,6 +37,8 @@ use crownbar_integrations::{Services, Wake};
 use crownbar_widgets::{Arrangement, WidgetRegistry};
 use state::{Bar, BarState};
 
+pub use app_config::app_config;
+
 /// How far the bar's reserved space stops short of its own lower edge. Panels
 /// open into the area below that line, hanging this far below it — flush with
 /// the bar's edge.
@@ -50,10 +53,10 @@ pub fn root(
     component(move |cx| {
         let theme = provide_configured_theme(cx);
         let (transparency, wallpaper) = sync::appearance(cx, &appearance);
+        let ground_strength = Ground::of(&config).strength_at_glyphs();
         let overrides = sync::theme_overrides(cx);
         let config = BarConfig::new(&settings, appearance.bar_height);
         let backdrop = sync::backdrop(cx, wallpaper, config);
-        let ground_strength = Ground::of(&config).strength_at_glyphs();
         let palette = cx.memo(move |runtime| {
             let transparency = transparency.get(runtime);
             let overrides = overrides.get(runtime);

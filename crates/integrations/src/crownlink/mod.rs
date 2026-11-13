@@ -1,9 +1,10 @@
 //! The phone link, over crownlink's IPC.
 //!
 //! crownlink owns every linked device; the bar mirrors the ones connected right
-//! now — their battery, their hotspot, what they stream here and an answered
-//! call — and asks crownlink to start and stop things on them. A ringing call
-//! is crownotify's card, not the bar's.
+//! now — their battery, their hotspot, what they stream here, an answered
+//! call and their ongoing activities — and asks crownlink to start and stop
+//! things on them. A ringing call is crownotify's card, not the bar's; a phone
+//! ringing this computer to find it is the bar's.
 //!
 //! crownlink may not be installed, may start after the bar and may be
 //! restarted under it, so the loop reconnects for as long as the bar lives and
@@ -15,6 +16,7 @@
 //! Every device is its own entry, keyed by its id, so any number of phones —
 //! none included — is just a longer or shorter list.
 
+mod activity;
 mod call;
 mod device;
 mod roster;
@@ -24,6 +26,7 @@ mod topic;
 
 use std::{path::PathBuf, sync::Arc};
 
+pub use activity::{LiveButton, LiveClock, PhoneActivity};
 pub use call::PhoneCall;
 pub use crownlink_linux::ipc::proto::{Battery, DeviceClass, DeviceId, Feature, FeatureSet};
 pub use device::PhoneDevice;
@@ -44,9 +47,11 @@ pub struct PhoneState {
     /// Every connected device, by name. Empty whenever crownlink is not
     /// running.
     pub devices: Vec<PhoneDevice>,
+    /// The device ringing this computer to find it, which may since have gone.
+    pub ringing_here: Option<DeviceId>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PhoneCommand {
     Start(DeviceId, Stream),
     Stop(DeviceId, Stream),
@@ -54,14 +59,34 @@ pub enum PhoneCommand {
     HangUp(DeviceId),
     /// Turn the device's mobile hotspot on or off.
     SetHotspot(DeviceId, bool),
+    /// Press a button of one of the device's live activities: the activity's
+    /// id, then the button's.
+    LiveAction(DeviceId, Arc<str>, Arc<str>),
+    /// Ring the device at full volume, even when it is silenced.
+    RingDevice(DeviceId),
+    StopRinging(DeviceId),
+    /// Silence this computer, rung by whichever device.
+    StopLocalRing,
+    /// Send this computer's saved password for a network to the device.
+    ShareWifi(DeviceId, Arc<str>),
+    /// Ask the device for a network's password, to save it here.
+    RequestWifi(DeviceId, Arc<str>),
 }
 
 impl PhoneCommand {
-    pub const fn device(self) -> DeviceId {
+    /// The device the command is about; `None` for one about this computer.
+    pub fn device(&self) -> Option<DeviceId> {
         match self {
-            Self::Start(id, _) | Self::Stop(id, _) | Self::HangUp(id) | Self::SetHotspot(id, _) => {
-                id
-            }
+            Self::Start(id, _)
+            | Self::Stop(id, _)
+            | Self::HangUp(id)
+            | Self::SetHotspot(id, _)
+            | Self::LiveAction(id, ..)
+            | Self::RingDevice(id)
+            | Self::StopRinging(id)
+            | Self::ShareWifi(id, _)
+            | Self::RequestWifi(id, _) => Some(*id),
+            Self::StopLocalRing => None,
         }
     }
 }
@@ -101,9 +126,12 @@ async fn serve(backend: Backend<PhoneState, PhoneCommand>, directory: Option<Pat
 fn offline(publish: &Publisher<PhoneState>) {
     publish.edit(|state| {
         let reason = Availability::Unavailable(Arc::from("crownlink is not running"));
-        let changed = state.availability != reason || !state.devices.is_empty();
+        let changed = state.availability != reason
+            || !state.devices.is_empty()
+            || state.ringing_here.is_some();
         state.availability = reason;
         state.devices.clear();
+        state.ringing_here = None;
         changed
     });
 }
