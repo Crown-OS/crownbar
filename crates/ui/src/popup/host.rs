@@ -56,9 +56,10 @@ pub fn panel_host(bar: Bar) -> impl View {
         .right(0.0)
         .overflow_hidden()
         .pointer_events_none();
-    match bar.config.position {
-        BarPosition::Top => host.top(host_offset(bar)).bottom(0.0),
-        BarPosition::Bottom => host.top(0.0).bottom(host_offset(bar)),
+    let offset = bind(move |runtime| host_offset(runtime, bar));
+    match bar.position {
+        BarPosition::Top => host.top(offset).bottom(0.0),
+        BarPosition::Bottom => host.top(0.0).bottom(offset),
     }
 }
 

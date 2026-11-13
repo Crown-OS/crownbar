@@ -3,8 +3,8 @@ pub use crownos_config::schema::{Bar as BarSettings, BarPosition};
 pub static BAR_NAMESPACE: &str = "crownbar";
 pub static BAR_HEIGHT: u32 = 40;
 
-/// Where the bar sits and how it is shaped. Fixed for the life of the layer
-/// surface: the compositor is only told once.
+/// Where the bar sits and how it is shaped. Followed live, except for
+/// `position`: the layer surface's anchor is described only when it is made.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BarConfig {
     pub bar_height: u32,
@@ -36,6 +36,14 @@ impl BarConfig {
     /// The bar's extent from its screen edge, margin included.
     pub fn reach(&self) -> u32 {
         self.margin + self.bar_height
+    }
+
+    /// `next` as it can be applied to a running bar: on this bar's edge.
+    pub fn reshaped_to(&self, next: Self) -> Self {
+        Self {
+            position: self.position,
+            ..next
+        }
     }
 }
 
@@ -73,5 +81,21 @@ mod tests {
         assert_eq!(config.margin, 8);
         assert_eq!(config.radius, Some(appearance.bar_height as f32 / 2.0));
         assert_eq!(config.reach(), appearance.bar_height + 8);
+    }
+
+    #[test]
+    fn a_running_bar_reshapes_but_stays_on_its_edge() {
+        let running = BarConfig::new(&BarSettings::default(), 32);
+        let moved = BarConfig::new(
+            &BarSettings {
+                height: Some(44),
+                position: BarPosition::Bottom,
+                ..BarSettings::default()
+            },
+            32,
+        );
+        let reshaped = running.reshaped_to(moved);
+        assert_eq!(reshaped.bar_height, 44);
+        assert_eq!(reshaped.position, running.position);
     }
 }

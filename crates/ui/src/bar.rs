@@ -1,7 +1,9 @@
 //! The bar itself: its ground, and the pills in their three slots.
 
 use crownbar_config::BarPosition;
-use crownui::prelude::{Cx, Listeners, Styled, View, bind, canvas, hstack, keyed, show, zstack};
+use crownui::prelude::{
+    Cx, Listeners, Runtime, Styled, View, bind, canvas, hstack, keyed, show, zstack,
+};
 
 use crate::{
     backdrop::{self, Ground},
@@ -41,12 +43,12 @@ fn strip(cx: &mut Cx, bar: Bar) -> impl View + use<> {
             .collect::<Vec<_>>()
     };
     let config = bar.config;
-    let ground = Ground::of(&config);
-    let margin = config.margin as f32;
+    let margin = move |runtime: &mut Runtime| config.get(runtime).margin as f32;
     let strip = zstack((
         // A click on bare bar puts away whatever panel is up, the same way a
         // click anywhere outside it does.
         canvas(move |runtime, size, list| {
+            let ground = Ground::of(&config.get(runtime));
             backdrop::paint(list, size, bar.palette.get(runtime).bar_fill, ground)
         })
         .absolute()
@@ -57,13 +59,13 @@ fn strip(cx: &mut Cx, bar: Bar) -> impl View + use<> {
         slot_row(bar, WidgetSlot::Right, in_slot(WidgetSlot::Right)),
     ))
     .absolute()
-    .left(margin)
-    .right(margin)
-    .h(bar.height)
+    .left(bind(margin))
+    .right(bind(margin))
+    .h(bind(move |runtime| config.get(runtime).bar_height as f32))
     .pointer_events_auto();
-    match config.position {
-        BarPosition::Top => strip.top(margin),
-        BarPosition::Bottom => strip.bottom(margin),
+    match bar.position {
+        BarPosition::Top => strip.top(bind(margin)),
+        BarPosition::Bottom => strip.bottom(bind(margin)),
     }
 }
 

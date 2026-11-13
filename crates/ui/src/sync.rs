@@ -9,10 +9,11 @@ use std::{
 
 use crownbar_config::{BarConfig, BarSettings};
 use crownconfig::{Appearance, SectionWatch, ThemeOverrides};
-use crownui::prelude::{Cx, Signal, Size};
+use crownui::prelude::{Cx, Rect, Signal, Size, Store};
 use tokio::sync::watch;
 
 use crate::{
+    app_config::exclusive_zone,
     frames::animate,
     popup,
     state::Bar,
@@ -91,26 +92,35 @@ pub fn appearance(cx: &mut Cx, appearance: &Appearance) -> (Signal<f32>, Signal<
     (transparency, wallpaper)
 }
 
-/// A wallpaper to sample, and the output it fills.
-type SampleRequest = Option<(PathBuf, Size)>;
+/// A wallpaper to sample, the output it fills, and the bar's strip on it.
+type SampleRequest = Option<(PathBuf, Size, Rect)>;
 
 /// The wallpaper at `path` as it lies under the bar, sampled off the UI thread
-/// again whenever it or the output changes. `None` until then, or for a
-/// wallpaper that is not a still image.
-pub fn backdrop(cx: &mut Cx, path: Signal<String>, config: BarConfig) -> Signal<Option<Backdrop>> {
+/// again whenever it, the output or the bar's shape changes. `None` until
+/// then, or for a wallpaper that is not a still image.
+pub fn backdrop(
+    cx: &mut Cx,
+    path: Signal<String>,
+    config: Signal<BarConfig>,
+) -> Signal<Option<Backdrop>> {
     let backdrop = cx.signal(None);
     let output = cx.output_size();
     let (requests, receiver) = watch::channel(None);
     cx.effect(move |runtime| {
         let screen = output.get(runtime);
+        let config = config.get(runtime);
         let request = path.with(runtime, |path| {
-            screen
-                .filter(|_| !path.is_empty())
-                .map(|screen| (PathBuf::from(path), screen))
+            screen.filter(|_| !path.is_empty()).map(|screen| {
+                (
+                    PathBuf::from(path),
+                    screen,
+                    wallpaper::strip(&config, screen),
+                )
+            })
         });
         requests.send_replace(request);
     });
-    sample_next(cx, receiver, backdrop, config);
+    sample_next(cx, receiver, backdrop);
     backdrop
 }
 
@@ -120,14 +130,13 @@ fn sample_next(
     cx: &mut Cx,
     mut requests: watch::Receiver<SampleRequest>,
     backdrop: Signal<Option<Backdrop>>,
-    config: BarConfig,
 ) {
     let next = async move {
         requests.changed().await.ok()?;
         let request = requests.borrow_and_update().clone();
         let sampled = match request {
-            Some((path, screen)) => tokio::task::spawn_blocking(move || {
-                wallpaper::sample(&path, screen, wallpaper::strip(&config, screen))
+            Some((path, screen, strip)) => tokio::task::spawn_blocking(move || {
+                wallpaper::sample(&path, screen, strip)
                     .inspect_err(|error| {
                         log::info!(
                             "the bar's ink follows the theme: {}: {error}",
@@ -151,7 +160,7 @@ fn sample_next(
         if !superseded {
             backdrop.set(cx, sampled);
         }
-        sample_next(cx, requests, backdrop, config);
+        sample_next(cx, requests, backdrop);
     });
 }
 
@@ -164,21 +173,59 @@ pub fn theme_overrides(cx: &mut Cx) -> Signal<ThemeOverrides> {
     signal
 }
 
-/// `bar.ron`, following the file. A new arrangement rebuilds the strip at
-/// once; a new shape or place waits for a restart, since the layer surface is
-/// described to the compositor only when it is made.
-pub fn bar_settings(cx: &mut Cx, bar: Bar, settings: BarSettings, fallback_height: u32) {
-    let watch = crownconfig::watch_section(BarSettings::SECTION, settings);
-    follow(cx, watch, move |cx, settings: BarSettings| {
+/// What the bar's shape is made from, as last read from each file.
+struct ShapeSources {
+    settings: BarSettings,
+    /// `appearance.bar_height`, for a `bar.ron` that names no height.
+    fallback_height: u32,
+}
+
+/// `bar.ron` and `appearance.bar_height`, following both files. A new
+/// arrangement rebuilds the strip, and a new shape resizes the bar, at once; a
+/// move to the other edge waits for a restart, since the layer surface's
+/// anchor is described to the compositor only when it is made.
+pub fn bar_shape(cx: &mut Cx, bar: Bar, settings: BarSettings, appearance: Appearance) {
+    let sources = cx.store(ShapeSources {
+        settings: settings.clone(),
+        fallback_height: appearance.bar_height,
+    });
+    let settings_watch = crownconfig::watch_section(BarSettings::SECTION, settings);
+    follow(cx, settings_watch, move |cx, settings: BarSettings| {
         let arrangement = Arrangement::from(&settings);
         if bar.state.with(cx, |state| state.arrangement != arrangement) {
             popup::dismiss(cx, bar);
             bar.rearrange(cx, WidgetRegistry::arranged(&arrangement), arrangement);
         }
-        if BarConfig::new(&settings, fallback_height) != bar.config {
-            log::info!("bar.ron moves or reshapes the bar; restart crownbar to apply it");
-        }
+        sources.update(cx, |sources| sources.settings = settings);
+        reshape(cx, bar, sources);
     });
+    let appearance_watch = crownconfig::watch_section(Appearance::SECTION, appearance);
+    follow(cx, appearance_watch, move |cx, appearance: Appearance| {
+        sources.update(cx, |sources| {
+            sources.fallback_height = appearance.bar_height
+        });
+        reshape(cx, bar, sources);
+    });
+}
+
+/// Gives the bar the shape its sources now describe: the strip is laid out
+/// again, the surface resized and the space it reserves moved. A panel that is
+/// up is put away, since it hangs from the edge that moved.
+fn reshape(cx: &mut Cx, bar: Bar, sources: Store<ShapeSources>) {
+    let wanted = sources.with(cx, |sources| {
+        BarConfig::new(&sources.settings, sources.fallback_height)
+    });
+    let current = bar.config.with_untracked(cx, |config| *config);
+    if wanted.position != current.position {
+        log::info!("bar.ron moves the bar to the other edge; restart crownbar to apply it");
+    }
+    let next = current.reshaped_to(wanted);
+    if next == current {
+        return;
+    }
+    bar.config.set(cx, next);
+    popup::dismiss(cx, bar);
+    cx.set_layer_exclusive_zone(exclusive_zone(&next));
 }
 
 /// Waits for the next edit of a section, applies it, and waits again.

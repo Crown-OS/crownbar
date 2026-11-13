@@ -15,7 +15,7 @@ mod sheen;
 pub use host::panel_host;
 
 use crownbar_config::BarPosition;
-use crownui::prelude::{Cx, LayerExtent, Size};
+use crownui::prelude::{Cx, LayerExtent, Runtime, Size};
 use kurbo::Rect;
 
 use crate::{PANEL_GAP, frames::animate, state::Bar};
@@ -83,7 +83,7 @@ fn open(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
 }
 
 fn opening(bar: Bar) -> Opening {
-    match bar.config.position {
+    match bar.position {
         BarPosition::Top => Opening::Down,
         BarPosition::Bottom => Opening::Up,
     }
@@ -119,14 +119,15 @@ pub fn dismiss(cx: &mut Cx, bar: Bar) {
 /// Every pixel of the surface is GPU memory, drawn on or not, so it gives the
 /// room beside the bar back once no panel is left on screen.
 fn shrink_to_strip(cx: &mut Cx, bar: Bar) {
-    cx.set_layer_height(LayerExtent::Fixed(bar.config.reach()));
+    let reach = bar.config.with_untracked(cx, |config| config.reach());
+    cx.set_layer_height(LayerExtent::Fixed(reach));
 }
 
 /// Whether the surface has grown past the strip, so a panel has somewhere to
 /// be drawn. Its springs wait for that: a bar on the bottom edge moves down
 /// the surface as it grows, and a spring already under way would chase it.
-fn has_room(bar: Bar, surface: Size) -> bool {
-    surface.height > bar.config.reach() as f32
+fn has_room(runtime: &mut Runtime, bar: Bar, surface: Size) -> bool {
+    surface.height > bar.config.with_untracked(runtime, |config| config.reach()) as f32
 }
 
 /// A widget that started a poll loop when its panel opened stops it here.
@@ -199,16 +200,16 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
     }
     let surface = bar.surface.with_untracked(cx, |size| *size);
     let height = popup.height.with_untracked(cx, |height| f64::from(*height));
-    if height <= 0.0 || !has_room(bar, surface) {
+    if height <= 0.0 || !has_room(cx, bar, surface) {
         return true;
     }
     let anchor_x = popup
         .anchor_x
         .with_untracked(cx, |anchor| f64::from(*anchor));
-    let top = match bar.config.position {
+    let top = match bar.position {
         BarPosition::Top => f64::from(PANEL_GAP),
         BarPosition::Bottom => {
-            let host = f64::from(surface.height) - f64::from(host_offset(bar));
+            let host = f64::from(surface.height) - f64::from(host_offset(cx, bar));
             host - f64::from(PANEL_GAP) - height
         }
     };
@@ -247,8 +248,8 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
 /// How far the area panels open into is set back from the bar's screen edge:
 /// to the line the bar reserves, which stops [`PANEL_GAP`] short of its far
 /// edge.
-pub fn host_offset(bar: Bar) -> f32 {
-    bar.config.reach() as f32 - PANEL_GAP
+pub fn host_offset(runtime: &mut Runtime, bar: Bar) -> f32 {
+    bar.config.get(runtime).reach() as f32 - PANEL_GAP
 }
 
 /// Where the panel wants to be: centred on its pill with its top edge at

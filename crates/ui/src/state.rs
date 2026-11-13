@@ -8,7 +8,7 @@
 
 use std::{ops::Range, time::Duration};
 
-use crownbar_config::BarConfig;
+use crownbar_config::{BarConfig, BarPosition};
 use crownui::prelude::{Cx, Memo, Rect, Runtime, Signal, Size, Store};
 
 use crate::{
@@ -75,14 +75,21 @@ pub struct Bar {
     pub clock: Store<FrameClock>,
     /// The surface's size, for keeping a panel on screen.
     pub surface: Signal<Size>,
-    /// The bar's own height; panels hang from its lower edge.
-    pub height: f32,
-    /// Where the bar sits, which is where its panels open from.
-    pub config: BarConfig,
+    /// The bar's shape, followed live; panels hang from its lower edge.
+    pub config: Signal<BarConfig>,
+    /// The edge the bar sits on, which is where its panels open from. Fixed
+    /// for the life of the layer surface.
+    pub position: BarPosition,
 }
 
 impl Bar {
-    pub fn new(cx: &mut Cx, state: BarState, palette: Memo<Palette>, config: BarConfig) -> Self {
+    pub fn new(
+        cx: &mut Cx,
+        state: BarState,
+        palette: Memo<Palette>,
+        config: Signal<BarConfig>,
+    ) -> Self {
+        let position = config.with_untracked(cx, |config| config.position);
         let revisions = (0..state.widgets.len()).map(|_| cx.signal(0_u64)).collect();
         let popup = Popup {
             owner: cx.signal(None),
@@ -104,8 +111,8 @@ impl Bar {
             popup,
             clock: cx.store(FrameClock::default()),
             surface: cx.signal(Size::ZERO),
-            height: config.bar_height as f32,
             config,
+            position,
         }
     }
 
@@ -147,7 +154,7 @@ impl Bar {
 
     /// Where `rect` lies along the bar, from 0 at its left end to 1 at its right.
     pub fn span_of(self, runtime: &mut Runtime, rect: Rect) -> Range<f32> {
-        let margin = self.config.margin as f32;
+        let margin = self.config.get(runtime).margin as f32;
         let width = self.surface.get(runtime).width - 2.0 * margin;
         if width <= 0.0 {
             return 0.0..1.0;

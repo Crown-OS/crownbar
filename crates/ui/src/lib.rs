@@ -53,13 +53,13 @@ pub fn root(
     component(move |cx| {
         let theme = provide_configured_theme(cx);
         let (transparency, wallpaper) = sync::appearance(cx, &appearance);
-        let ground_strength = Ground::of(&config).strength_at_glyphs();
         let overrides = sync::theme_overrides(cx);
-        let config = BarConfig::new(&settings, appearance.bar_height);
+        let config = cx.signal(BarConfig::new(&settings, appearance.bar_height));
         let backdrop = sync::backdrop(cx, wallpaper, config);
         let palette = cx.memo(move |runtime| {
             let transparency = transparency.get(runtime);
             let overrides = overrides.get(runtime);
+            let ground_strength = Ground::of(&config.get(runtime)).strength_at_glyphs();
             let behind = backdrop.get(runtime).map(|wallpaper| Behind {
                 wallpaper,
                 ground_strength,
@@ -76,7 +76,7 @@ pub fn root(
         };
         let bar = Bar::new(cx, state, palette, config);
         sync::start(cx, bar, wake);
-        sync::bar_settings(cx, bar, settings, appearance.bar_height);
+        sync::bar_shape(cx, bar, settings, appearance);
         zstack((
             probe::size_probe(bar.surface).absolute().inset(0.0),
             bar::bar_strip(bar),

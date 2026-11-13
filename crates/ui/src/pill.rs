@@ -46,7 +46,9 @@ pub fn pill(bar: Bar, index: usize, id: String) -> Element<PillKind> {
         .h_full()
         .shrink(0.0)
         .px(PILL_PAD_X)
-        .rounded(bar.height / 2.0)
+        .rounded(bind(move |runtime| {
+            bar.config.get(runtime).bar_height as f32 / 2.0
+        }))
         .pointer_events_auto()
         .transition(SpringProfile::SNAPPY.curve())
 }

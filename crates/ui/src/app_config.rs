@@ -18,7 +18,7 @@ pub fn app_config(bar_config: &BarConfig) -> AppConfig {
     let layer = LayerOptions::new(BAR_NAMESPACE, edge | Anchor::LEFT | Anchor::RIGHT)
         .layer(Layer::Top)
         .height(LayerExtent::Fixed(bar_config.reach()))
-        .exclusive_zone(bar_config.reach() as i32 - PANEL_GAP as i32);
+        .exclusive_zone(exclusive_zone(bar_config));
     AppConfig::new("CrownBar")
         .app_id(BAR_NAMESPACE)
         .size(1280, bar_config.bar_height.max(1) * 18)
@@ -29,3 +29,8 @@ pub fn app_config(bar_config: &BarConfig) -> AppConfig {
         .layer(layer)
 }
 
+/// The space the bar keeps windows out of: its reach, short of the gap its
+/// panels hang in.
+pub fn exclusive_zone(bar_config: &BarConfig) -> i32 {
+    bar_config.reach() as i32 - PANEL_GAP as i32
+}
