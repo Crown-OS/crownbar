@@ -149,7 +149,9 @@ impl PhoneState {
             | Event::TransferChanged(_)
             | Event::AudioRoutesChanged(_)
             | Event::FocusChanged(_)
-            | Event::WifiReceived(_) => {}
+            | Event::WifiReceived(_)
+            | Event::ViewerResized(_)
+            | Event::MonitorTitleChanged(_) => {}
         }
         Followup::Settled
     }
