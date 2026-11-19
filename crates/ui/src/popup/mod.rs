@@ -76,6 +76,7 @@ fn open(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
             .motion
             .with(cx, |motion| motion.frame(f64::from(anchor_x), opening(bar)));
         popup.frame.set(cx, birth);
+        popup.shown.set(cx, Some(idx));
     }
     popup.present.set(cx, true);
     cx.set_layer_height(LayerExtent::Output);
