@@ -187,7 +187,7 @@ fn capture_bar(session: &mut Session) -> Result<()> {
     toggled.notifications.do_not_disturb = true;
     toggled.battery = fixtures::battery(0.54, ChargeStatus::Charging, Some(48));
     toggled.power.profiles.active = Some(crownbar_integrations::power::Profile::Performance);
-    toggled.workspace_mode.mode = crownbar_integrations::workspace_mode::WorkspaceMode::Tiling;
+    toggled.workspace_mode.focused = crownbar_integrations::workspace_mode::WorkspaceMode::Tiling;
     let mut app = mount(session.settings, toggled, false)?;
     session.carrier.capture_state(
         &mut app,

@@ -53,11 +53,11 @@ fn in_slot(slot: WidgetSlot, entries: &[String]) -> impl Iterator<Item = (Widget
 }
 
 /// The built-in widget called `name`, on the bar of the output called `output`.
-pub fn builtin(name: &str, _output: Option<&str>) -> Option<Box<dyn BarWidget>> {
+pub fn builtin(name: &str, output: Option<&str>) -> Option<Box<dyn BarWidget>> {
     let widget: Box<dyn BarWidget> = match name {
         "assistant" => Box::new(crate::assistant::AssistantWidget::new()),
         "clock" => Box::new(ClockWidget::new()),
-        "layout" => Box::new(LayoutWidget::new()),
+        "layout" => Box::new(LayoutWidget::new(output)),
         "weather" => Box::new(WeatherWidget::new()),
         "caffeine" => Box::new(CaffeineWidget::new()),
         "volume" => Box::new(VolumeWidget::new()),

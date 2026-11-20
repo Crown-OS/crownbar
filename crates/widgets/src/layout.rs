@@ -1,4 +1,4 @@
-//! Tiling/floating switch for the focused workspace.
+//! Tiling/floating switch for the active workspace of the bar's output.
 //!
 //! The pill shows the mode the compositor reports, morphing between a loose
 //! scatter of windows and a grid, and a click asks for the other one. Nothing
@@ -10,21 +10,27 @@ use std::sync::Arc;
 use crate::{BarWidget, Icon, animation::Spring};
 use crownbar_integrations::{
     Services,
-    workspace_mode::{WorkspaceMode, WorkspaceModeState},
+    workspace_mode::{ModeRequest, WorkspaceMode, WorkspaceModeState},
 };
 
 pub struct LayoutWidget {
     workspace: Arc<WorkspaceModeState>,
+    output: Option<Arc<str>>,
     morph: Spring,
 }
 
 impl LayoutWidget {
-    pub fn new() -> Self {
+    pub fn new(output: Option<&str>) -> Self {
         let workspace = Arc::<WorkspaceModeState>::default();
         Self {
-            morph: Spring::new(tiled(workspace.mode)),
+            morph: Spring::new(tiled(workspace.focused)),
             workspace,
+            output: output.map(Arc::from),
         }
+    }
+
+    fn mode(&self) -> WorkspaceMode {
+        self.workspace.mode_on(self.output.as_deref())
     }
 }
 
@@ -61,7 +67,7 @@ impl BarWidget for LayoutWidget {
         }
         let appearing = !self.visible() && workspace.availability.usable();
         self.workspace = workspace;
-        let moved = self.morph.set_target(tiled(self.workspace.mode));
+        let moved = self.morph.set_target(tiled(self.mode()));
         if appearing {
             self.morph.snap_to_target();
         }
@@ -69,7 +75,10 @@ impl BarWidget for LayoutWidget {
     }
 
     fn on_click(&mut self, services: &Services) -> bool {
-        services.workspace_mode.send(self.workspace.mode.toggled());
+        services.workspace_mode.send(ModeRequest {
+            output: self.output.clone(),
+            mode: self.mode().toggled(),
+        });
         false
     }
 

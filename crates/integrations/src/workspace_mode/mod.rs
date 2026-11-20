@@ -1,4 +1,4 @@
-//! Whether the focused workspace tiles its windows or lets them float.
+//! Whether a workspace tiles its windows or lets them float.
 //!
 //! The compositor owns the answer and says it on `crownos_workspace_mode_v1`,
 //! on a connection of the service's own: the mode belongs to a workspace, not
@@ -7,7 +7,7 @@
 
 mod connection;
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{bus::Backend, status::Availability};
 use connection::ModeConnection;
@@ -31,13 +31,34 @@ impl WorkspaceMode {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkspaceModeState {
     pub availability: Availability,
+    /// The mode of the focused output's active workspace.
+    pub focused: WorkspaceMode,
+    /// The mode of each output's active workspace, by `wl_output` name. Empty
+    /// when the compositor reports only the focused output.
+    pub outputs: BTreeMap<String, WorkspaceMode>,
+}
+
+impl WorkspaceModeState {
+    /// The mode the bar on `output` shows: its own output's, or the focused
+    /// output's when the compositor does not report that output.
+    pub fn mode_on(&self, output: Option<&str>) -> WorkspaceMode {
+        output
+            .and_then(|name| self.outputs.get(name))
+            .copied()
+            .unwrap_or(self.focused)
+    }
+}
+
+/// Switch the active workspace of the bar's output to `mode`.
+#[derive(Clone, Debug)]
+pub struct ModeRequest {
+    pub output: Option<Arc<str>>,
     pub mode: WorkspaceMode,
 }
 
-/// The mode to switch the focused workspace to.
-pub type Channel = crate::bus::Channel<WorkspaceModeState, WorkspaceMode>;
+pub type Channel = crate::bus::Channel<WorkspaceModeState, ModeRequest>;
 
-pub async fn run(backend: Backend<WorkspaceModeState, WorkspaceMode>) {
+pub async fn run(backend: Backend<WorkspaceModeState, ModeRequest>) {
     let Backend {
         publish,
         mut commands,
@@ -54,16 +75,18 @@ pub async fn run(backend: Backend<WorkspaceModeState, WorkspaceMode>) {
     loop {
         let wanted = tokio::select! {
             command = commands.recv() => match command {
-                Some(mode) => mode,
+                Some(request) => request,
                 None => return,
             },
             heard = link.dispatch() => match heard {
-                Ok(Some(mode)) => {
+                Ok(Some(heard)) => {
                     publish.edit(|state| {
                         let changed = state.availability != Availability::Ready
-                            || state.mode != mode;
+                            || state.focused != heard.focused
+                            || state.outputs != heard.outputs;
                         state.availability = Availability::Ready;
-                        state.mode = mode;
+                        state.focused = heard.focused;
+                        state.outputs = heard.outputs;
                         changed
                     });
                     continue;
@@ -75,7 +98,7 @@ pub async fn run(backend: Backend<WorkspaceModeState, WorkspaceMode>) {
                 }
             },
         };
-        link.request(wanted);
+        link.request(&wanted);
     }
 }
 
@@ -84,4 +107,21 @@ fn unavailable(publish: &crate::bus::Publisher<WorkspaceModeState>, reason: &'st
         state.availability = Availability::Unavailable(Arc::from(reason));
         true
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bar_shows_its_own_output_and_falls_back_to_the_focused_one() {
+        let state = WorkspaceModeState {
+            availability: Availability::Ready,
+            focused: WorkspaceMode::Tiling,
+            outputs: BTreeMap::from([("HDMI-A-1".to_owned(), WorkspaceMode::Floating)]),
+        };
+        assert_eq!(state.mode_on(Some("HDMI-A-1")), WorkspaceMode::Floating);
+        assert_eq!(state.mode_on(Some("eDP-1")), WorkspaceMode::Tiling);
+        assert_eq!(state.mode_on(None), WorkspaceMode::Tiling);
+    }
 }

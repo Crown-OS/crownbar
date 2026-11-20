@@ -56,7 +56,8 @@ pub fn everyday() -> Snapshots {
         weather: weather(),
         workspace_mode: WorkspaceModeState {
             availability: Availability::Ready,
-            mode: WorkspaceMode::Floating,
+            focused: WorkspaceMode::Floating,
+            ..WorkspaceModeState::default()
         },
         ..Snapshots::default()
     }
