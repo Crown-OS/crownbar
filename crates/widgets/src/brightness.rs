@@ -140,8 +140,6 @@ impl BarWidget for BrightnessWidget {
             panel.row(crate::popup::Item::new(why).plain().enabled(false).row());
         }
 
-        // A compositor with no gamma protocol gets no night-light rows, rather
-        // than a switch that silently does nothing.
         if self.nightlight.availability.usable() {
             let night = self.nightlight.clone();
             panel.row(Row::Separator);
@@ -149,7 +147,7 @@ impl BarWidget for BrightnessWidget {
             panel.action(
                 Row::Slider {
                     icon: Icon::Rune(Rune::Moon),
-                    value: night.warmth(),
+                    value: night.warmth,
                     muted: None,
                 },
                 Target::NightLight,
@@ -157,7 +155,7 @@ impl BarWidget for BrightnessWidget {
             panel.row(
                 Item::new("Colour Temperature")
                     .plain()
-                    .detail(format!("{} K", night.kelvin))
+                    .detail(format!("{} K", night.kelvin()))
                     .enabled(false)
                     .row(),
             );
@@ -185,9 +183,9 @@ impl BarWidget for BrightnessWidget {
                     }
                     // Dragging the warmth slider turns the tint on, which is
                     // how most people will switch it on in the first place.
-                    Some(Target::NightLight) => services.nightlight.send(
-                        NightLightCommand::SetKelvin(NightLightState::kelvin_at(value)),
-                    ),
+                    Some(Target::NightLight) => services
+                        .nightlight
+                        .send(NightLightCommand::SetWarmth(value)),
                     _ => {}
                 }
                 AfterAction::Stay

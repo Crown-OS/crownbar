@@ -331,7 +331,7 @@ fn capture_panel_states(session: &mut Session) -> Result<()> {
     single.nightlight = NightLightState {
         availability: Availability::Ready,
         active: true,
-        kelvin: 3400,
+        warmth: 0.775,
     };
     session.panel(
         VARIANTS,

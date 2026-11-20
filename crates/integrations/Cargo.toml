@@ -23,6 +23,8 @@ crownplugin-proto.workspace = true
 # The workspace-mode and brightness protocols, generated from CrownOS's own XML.
 crownos-protocols.workspace = true
 suja-proto.workspace = true
+# The night light is two keys of display.ron, which the compositor follows.
+crownos-config.workspace = true
 
 anyhow.workspace = true
 chrono.workspace = true
@@ -35,10 +37,9 @@ thiserror = "2.0"
 battery = "0.7.8"
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-# Nightlight's gamma ramps belong to no surface, so the service holds a Wayland
-# connection of its own rather than reaching into the UI's.
+# Brightness and workspace mode belong to outputs, not to a surface, so each
+# service holds a Wayland connection of its own rather than reaching into the UI's.
 wayland-client = "0.31"
-wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 rustix = { version = "1", features = ["fs", "event"] }
 bluer = { version = "0.17.4", features = ["bluetoothd", "full", "id", "rfcomm"] }
 pipewire-native = "0.1.4"

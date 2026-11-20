@@ -621,6 +621,7 @@ dependencies = [
  "chrono",
  "clap",
  "crownlink-linux",
+ "crownos-config",
  "crownos-ipc",
  "crownos-protocols",
  "crownotify",
@@ -637,7 +638,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "wayland-client",
- "wayland-protocols-wlr",
  "zbus",
 ]
 

@@ -38,7 +38,7 @@ pub fn everyday() -> Snapshots {
         nightlight: NightLightState {
             availability: Availability::Ready,
             active: false,
-            kelvin: 4500,
+            warmth: 0.5,
         },
         notifications: NotificationsState {
             availability: Availability::Ready,
