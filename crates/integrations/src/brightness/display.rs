@@ -1,19 +1,12 @@
-//! What a controllable display is, and the curve its slider rides.
+//! What a display the bar can dim is, and how its level maps to the slider.
 
-/// A display the bar can dim. Stable for a session; a replug re-enumerates.
+/// A display, by the name of its `wl_output`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DisplayId(String);
 
 impl DisplayId {
-    /// The internal panel, by its `/sys/class/backlight` device name.
-    pub fn backlight(device: &str) -> Self {
-        Self(format!("backlight:{device}"))
-    }
-
-    /// An external monitor, by the EDID fields that survive a replug and a
-    /// change of i2c bus — which `ddc-hi`'s own id does not.
-    pub fn monitor(manufacturer: &str, model: &str, serial: &str) -> Self {
-        Self(format!("ddc:{manufacturer}-{model}-{serial}"))
+    pub fn new(output_name: impl Into<String>) -> Self {
+        Self(output_name.into())
     }
 
     pub fn as_str(&self) -> &str {
@@ -21,56 +14,64 @@ impl DisplayId {
     }
 }
 
+/// How the compositor changes a display's brightness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Transport {
-    /// `/sys/class/backlight` for reads, logind for writes. Fast and fine
-    /// grained.
+pub enum Control {
+    /// The level cannot be changed.
+    None,
     Backlight,
-    /// DDC/CI over i2c. Coarse, and a write costs tens of milliseconds.
     Ddc,
+    /// The compositor dims the picture.
+    Software,
+}
+
+impl Control {
+    pub fn adjustable(self) -> bool {
+        self != Self::None
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Display {
     pub id: DisplayId,
-    /// "Built-in Display", or the monitor's EDID name.
+    /// The output's description, or its name when it has none.
     pub label: String,
-    pub transport: Transport,
-    /// Perceptual level ∈ [0, 1] — see [`to_raw`].
+    pub control: Control,
+    /// Perceptual level ∈ [0, 1].
     pub level: f32,
-    /// Raw scale for the backlight; DDC is always 0-100.
-    pub max: u32,
 }
 
-/// Backlight hardware is linear in duty cycle and the eye is not, so a linear
-/// slider spends its bottom half doing nothing visible.
-const GAMMA: f32 = 2.2;
-/// Never let the slider reach zero: on most panels a raw 0 is the backlight
-/// off, and a brightness control that can blank the screen is a trap.
-const FLOOR: f32 = 0.01;
+/// The top of the protocol's perceptual scale.
+const PROTOCOL_MAXIMUM: u32 = 10_000;
 
-impl Transport {
-    /// Perceptual level to the value the hardware takes.
-    ///
-    /// DDC needs no curve: its scale is a percentage the monitor has already
-    /// made roughly perceptual, and applying gamma on top would fight it.
-    pub fn to_raw(self, level: f32, max: u32) -> u32 {
-        let level = level.clamp(0.0, 1.0);
-        let scaled = match self {
-            Self::Backlight => level.powf(GAMMA).max(FLOOR),
-            Self::Ddc => level,
-        };
-        (scaled * max as f32).round().clamp(1.0, max.max(1) as f32) as u32
+/// The slider position for a level on the protocol's perceptual scale. Both
+/// scales are perceptual, so no curve is applied.
+pub fn slider_level(protocol_level: u32) -> f32 {
+    protocol_level.min(PROTOCOL_MAXIMUM) as f32 / PROTOCOL_MAXIMUM as f32
+}
+
+/// The protocol level for a slider position, never above the protocol's
+/// maximum.
+pub fn protocol_level(slider_level: f32) -> u32 {
+    (slider_level.clamp(0.0, 1.0) * PROTOCOL_MAXIMUM as f32).round() as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_level_survives_a_round_trip_through_the_protocol() {
+        for level in [0.0, 0.01, 0.5, 0.683, 1.0] {
+            assert!((slider_level(protocol_level(level)) - level).abs() < 1e-4);
+        }
     }
 
-    pub fn from_raw(self, raw: u32, max: u32) -> f32 {
-        if max == 0 {
-            return 0.0;
-        }
-        let fraction = (raw as f32 / max as f32).clamp(0.0, 1.0);
-        match self {
-            Self::Backlight => fraction.powf(1.0 / GAMMA),
-            Self::Ddc => fraction,
-        }
+    #[test]
+    fn a_slider_out_of_range_never_asks_for_an_invalid_level() {
+        assert_eq!(protocol_level(1.7), PROTOCOL_MAXIMUM);
+        assert_eq!(protocol_level(-0.2), 0);
+        assert_eq!(protocol_level(f32::NAN), 0);
+        assert_eq!(slider_level(u32::MAX), 1.0);
     }
 }

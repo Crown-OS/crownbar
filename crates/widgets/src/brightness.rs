@@ -1,9 +1,9 @@
 //! Brightness widget and the Display panel behind it.
 //!
-//! The pill shows the internal panel; the popup carries one slider per screen
-//! the machine can dim, internal and DDC/CI alike. Levels are perceptual —
-//! [`crownbar_integrations::brightness`] owns the curve — so the slider travels
-//! evenly instead of doing nothing across its bottom half.
+//! The pill shows the display of the bar's own output; the panel carries one
+//! slider per display the compositor can dim, and one for all of them when
+//! there are several. Levels are perceptual on both sides, so the slider
+//! travels evenly instead of doing nothing across its bottom half.
 
 use std::sync::Arc;
 
@@ -13,8 +13,8 @@ use crate::{
     popup::{Header, Item, PanelBuilder, Row},
 };
 use crownbar_integrations::{
-    Interest, Services,
-    brightness::{BrightnessCommand, BrightnessState, DisplayId},
+    Services,
+    brightness::{BrightnessCommand, BrightnessState, Display, DisplayId},
     link::{self, SettingsPane},
     nightlight::{NightLightCommand, NightLightState},
 };
@@ -22,6 +22,7 @@ use crownbar_integrations::{
 pub struct BrightnessWidget {
     brightness: Arc<BrightnessState>,
     nightlight: Arc<NightLightState>,
+    output: Option<Arc<str>>,
     level: Spring,
     targets: Vec<Option<Target>>,
 }
@@ -29,18 +30,24 @@ pub struct BrightnessWidget {
 #[derive(Clone)]
 enum Target {
     Display(DisplayId),
+    AllDisplays,
     NightLight,
     Settings,
 }
 
 impl BrightnessWidget {
-    pub fn new() -> Self {
+    pub fn new(output: Option<&str>) -> Self {
         Self {
             brightness: Arc::default(),
             nightlight: Arc::default(),
+            output: output.map(Arc::from),
             level: Spring::new(0.0),
             targets: Vec::new(),
         }
+    }
+
+    fn own_display(&self) -> Option<&Display> {
+        self.brightness.for_output(self.output.as_deref())
     }
 }
 
@@ -69,22 +76,37 @@ impl BarWidget for BrightnessWidget {
             return false;
         }
         self.brightness = brightness;
-        self.level.set_target(self.brightness.level())
+        let level = self.own_display().map_or(0.0, |display| display.level);
+        self.level.set_target(level)
     }
 
-    fn popup(&mut self, services: &Services) -> Option<PopupSpec> {
+    fn popup(&mut self, _services: &Services) -> Option<PopupSpec> {
         if self.brightness.displays.is_empty() {
             return None;
         }
-        // Re-reading a monitor over DDC is as slow as writing one, so it
-        // happens only while this panel is up.
-        services
-            .brightness
-            .send(BrightnessCommand::Interest(Interest::Panel));
-
         let state = self.brightness.clone();
         let mut panel = PanelBuilder::new();
         panel.row(Header::new("Display").row());
+
+        let adjustable = state
+            .displays
+            .iter()
+            .filter(|display| display.control.adjustable())
+            .count();
+        if adjustable > 1 {
+            panel.row(Row::Section {
+                title: "All Displays".into(),
+                chevron: false,
+            });
+            panel.action(
+                Row::Slider {
+                    icon: Icon::Rune(Rune::Sun),
+                    value: self.own_display().map_or(0.0, |display| display.level),
+                    muted: None,
+                },
+                Target::AllDisplays,
+            );
+        }
 
         for display in &state.displays {
             // One screen needs no heading; several do, or the sliders are
@@ -95,14 +117,23 @@ impl BarWidget for BrightnessWidget {
                     chevron: false,
                 });
             }
-            panel.action(
-                Row::Slider {
-                    icon: Icon::Rune(Rune::Sun),
-                    value: display.level,
-                    muted: None,
-                },
-                Target::Display(display.id.clone()),
-            );
+            if display.control.adjustable() {
+                panel.action(
+                    Row::Slider {
+                        icon: Icon::Rune(Rune::Sun),
+                        value: display.level,
+                        muted: None,
+                    },
+                    Target::Display(display.id.clone()),
+                );
+            } else {
+                panel.row(
+                    Item::new("Brightness cannot be changed")
+                        .plain()
+                        .enabled(false)
+                        .row(),
+                );
+            }
         }
 
         if let Some(why) = state.availability.reason() {
@@ -149,6 +180,9 @@ impl BarWidget for BrightnessWidget {
                     Some(Target::Display(id)) => services
                         .brightness
                         .send(BrightnessCommand::SetLevel { id, level: value }),
+                    Some(Target::AllDisplays) => {
+                        services.brightness.send(BrightnessCommand::SetAll(value))
+                    }
                     // Dragging the warmth slider turns the tint on, which is
                     // how most people will switch it on in the first place.
                     Some(Target::NightLight) => services.nightlight.send(
@@ -172,10 +206,10 @@ impl BarWidget for BrightnessWidget {
         }
     }
 
-    fn popup_closed(&mut self, services: &Services) {
-        services
-            .brightness
-            .send(BrightnessCommand::Interest(Interest::Idle));
+    /// A monitor's own buttons change its brightness behind the compositor's
+    /// back, so the panel asks for a fresh reading each time it opens.
+    fn popup_opened(&mut self, services: &Services) {
+        services.brightness.send(BrightnessCommand::Refresh);
     }
 
     fn tick_animation(&mut self, dt: f32) -> bool {

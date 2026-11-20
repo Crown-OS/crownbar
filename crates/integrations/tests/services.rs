@@ -331,31 +331,25 @@ fn the_radios_agree_with_the_kernel() {
 }
 
 #[test]
-fn brightness_finds_every_screen_it_can_dim() {
-    use crownbar_integrations::brightness::Transport;
-
+fn brightness_lists_what_the_compositor_controls() {
     let services = Services::start(Wake::default()).expect("services start");
-    // DDC enumeration probes every i2c bus and is slower than everything else
-    // here.
-    sleep(SCAN);
+    sleep(SETTLE);
 
     let brightness = services.brightness.read();
     eprintln!("brightness {:?}", brightness.availability);
     for display in &brightness.displays {
         eprintln!(
-            "  {} {:?} level {:.2} max {}",
-            display.label, display.transport, display.level, display.max
+            "  {} ({}) {:?} level {:.2}",
+            display.label,
+            display.id.as_str(),
+            display.control,
+            display.level
         );
     }
     if !brightness.availability.usable() {
-        eprintln!("skipping brightness: nothing controllable");
+        eprintln!("skipping brightness: the compositor does not control it");
         return;
     }
-
-    assert!(
-        !brightness.displays.is_empty(),
-        "brightness reports itself usable but lists no display"
-    );
     for display in &brightness.displays {
         assert!(
             (0.0..=1.0).contains(&display.level),
@@ -363,30 +357,7 @@ fn brightness_finds_every_screen_it_can_dim() {
             display.label,
             display.level
         );
-        assert!(display.max > 0, "{} has a zero raw range", display.label);
-        // The curve has to survive a round trip, or the slider would drift a
-        // little further from the truth on every drag.
-        let raw = display.transport.to_raw(display.level, display.max);
-        let back = display.transport.from_raw(raw, display.max);
-        assert!(
-            (back - display.level).abs() < 0.02,
-            "{} level {} became {} after a round trip through raw {}",
-            display.label,
-            display.level,
-            back,
-            raw
-        );
     }
-    assert!(
-        brightness
-            .primary()
-            .is_some_and(|d| d.transport == Transport::Backlight)
-            || brightness
-                .displays
-                .iter()
-                .all(|d| d.transport == Transport::Ddc),
-        "an internal panel exists but is not what the pill shows"
-    );
 }
 
 /// Caffeine is the one service the event loop has to finish: it holds its

@@ -20,7 +20,7 @@ crownotify.workspace = true
 crownlink-linux.workspace = true
 # crownplugind's wire contract.
 crownplugin-proto.workspace = true
-# The workspace-mode switch's protocol, generated from CrownOS's own XML.
+# The workspace-mode and brightness protocols, generated from CrownOS's own XML.
 crownos-protocols.workspace = true
 suja-proto.workspace = true
 
@@ -51,4 +51,3 @@ reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "http2",
 ] }
-ddc-hi = { version = "0.4", default-features = false, features = ["ddc-i2c"] }

@@ -9,7 +9,7 @@ use crownbar_integrations::{
     audio::{AudioState, Device, DeviceKind as AudioKind, Stream, Volume},
     battery::{BatteryState, Charge, ChargeStatus},
     bluetooth::{Address, BluetoothState, BtDevice, DeviceKind, RadioState, SignalLevel},
-    brightness::{BrightnessState, Display, DisplayId, Transport},
+    brightness::{BrightnessState, Control, Display, DisplayId},
     caffeine::CaffeineState,
     crownlink::{Battery, DeviceClass, DeviceId, Feature, FeatureSet, PhoneDevice, PhoneState},
     network::{Joined, NetworkState, Radio, Uplink, WifiNetwork},
@@ -147,21 +147,18 @@ fn brightness() -> BrightnessState {
         availability: Availability::Ready,
         displays: vec![
             Display {
-                id: DisplayId::backlight("intel_backlight"),
+                id: DisplayId::new("eDP-1"),
                 label: "Built-in Display".into(),
-                transport: Transport::Backlight,
+                control: Control::Backlight,
                 level: 0.68,
-                max: 19_200,
             },
             Display {
-                id: DisplayId::monitor("GSM", "LG HDR 4K", "205NTAB1C123"),
+                id: DisplayId::new("DP-1"),
                 label: "LG HDR 4K".into(),
-                transport: Transport::Ddc,
+                control: Control::Ddc,
                 level: 0.45,
-                max: 100,
             },
         ],
-        failure: None,
     }
 }
 

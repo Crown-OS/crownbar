@@ -61,7 +61,7 @@ pub fn builtin(name: &str, output: Option<&str>) -> Option<Box<dyn BarWidget>> {
         "weather" => Box::new(WeatherWidget::new()),
         "caffeine" => Box::new(CaffeineWidget::new()),
         "volume" => Box::new(VolumeWidget::new()),
-        "brightness" => Box::new(BrightnessWidget::new()),
+        "brightness" => Box::new(BrightnessWidget::new(output)),
         "bluetooth" => Box::new(BluetoothWidget::new()),
         "wifi" => Box::new(WifiWidget::new()),
         "battery" => Box::new(BatteryWidget::new()),

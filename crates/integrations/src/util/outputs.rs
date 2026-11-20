@@ -122,6 +122,12 @@ impl<T> Outputs<T> {
             .filter_map(|bound| Some((bound.name.as_deref()?, bound)))
     }
 
+    pub fn named_tracked_mut(&mut self) -> impl Iterator<Item = (&str, &mut T)> {
+        self.bound
+            .values_mut()
+            .filter_map(|bound| Some((bound.name.as_deref()?, &mut bound.tracked)))
+    }
+
     pub fn find(&self, name: &str) -> Option<&T> {
         self.named()
             .find(|(bound_name, _)| *bound_name == name)
