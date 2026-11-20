@@ -360,6 +360,54 @@ fn brightness_lists_what_the_compositor_controls() {
     }
 }
 
+/// The night light is two keys of `display.ron`. It writes them only into a
+/// scratch config directory, never into the user's own.
+#[test]
+fn the_night_light_writes_and_follows_display_ron() {
+    use crownbar_integrations::nightlight::NightLightCommand;
+    use crownos_config::schema::Display;
+
+    if std::env::var_os(crownos_config::CONFIG_DIR_ENV).is_none() {
+        eprintln!("skipping the night light: no scratch CROWN_CONFIG_DIR");
+        return;
+    }
+    let path = crownos_config::path_for(Display::SECTION);
+    let write_externally = |text: &str| std::fs::write(&path, text).expect("display.ron written");
+    let settle = || sleep(Duration::from_millis(500));
+
+    write_externally("(night_light: true, night_light_warmth: 30.0)");
+    let services = Services::start(Wake::default()).expect("services start");
+    settle();
+    let state = services.nightlight.read();
+    assert!(
+        state.active,
+        "the night light did not read the file at start"
+    );
+    assert!((state.warmth - 0.3).abs() < 1e-6);
+
+    services
+        .nightlight
+        .send(NightLightCommand::SetActive(false));
+    settle();
+    let written: Display =
+        crownos_config::load_strict(Display::SECTION).expect("display.ron parses");
+    assert!(
+        !written.night_light,
+        "turning the night light off wrote nothing"
+    );
+    assert_eq!(
+        written.night_light_warmth, 30.0,
+        "the warmth moved on its own"
+    );
+
+    write_externally("(night_light: true, night_light_warmth: 30.0)");
+    settle();
+    assert!(
+        services.nightlight.read().active,
+        "an edit by another program that repeats an earlier one was not followed"
+    );
+}
+
 /// Caffeine is the one service the event loop has to finish: it holds its
 /// intent, but only `App` can turn that into a Wayland object. Without a
 /// compositor connection there is no `App`, so this checks the half that runs
