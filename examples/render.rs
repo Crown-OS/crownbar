@@ -34,7 +34,13 @@ fn main() -> Result<()> {
         height: (SURFACE.height * SCALE) as u32,
         scale: SCALE,
     };
-    let view = crownbar_ui::root(services, wake, appearance, BarSettings::default());
+    let view = crownbar_ui::root(
+        services,
+        wake.subscribe(),
+        appearance,
+        BarSettings::default(),
+        None,
+    );
     let mut app = InlineApp::<ImpellerBackend, TaffyEngine>::with_surface(
         view,
         TaffyEngine::new(),

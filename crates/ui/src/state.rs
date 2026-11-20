@@ -6,7 +6,7 @@
 //! actually moved — so a snapshot that changes the Wi-Fi pill re-runs the
 //! Wi-Fi pill's bindings and nothing else.
 
-use std::{ops::Range, time::Duration};
+use std::{ops::Range, sync::Arc, time::Duration};
 
 use crownbar_config::{BarConfig, BarPosition};
 use crownui::prelude::{Cx, Memo, Rect, Runtime, Signal, Size, Store};
@@ -22,7 +22,9 @@ pub struct BarState {
     pub widgets: WidgetRegistry,
     /// What `widgets` was built from.
     pub arrangement: Arrangement,
-    pub services: Services,
+    pub services: Arc<Services>,
+    /// The name of the output this bar is on.
+    pub output: Option<Arc<str>>,
 }
 
 /// The popup panel's state, as signals the panel host binds to.
@@ -78,7 +80,8 @@ pub struct Bar {
     /// The bar's shape, followed live; panels hang from its lower edge.
     pub config: Signal<BarConfig>,
     /// The edge the bar sits on, which is where its panels open from. Fixed
-    /// for the life of the layer surface.
+    /// for the life of the layer surface: a move to the other edge builds a
+    /// new one.
     pub position: BarPosition,
 }
 

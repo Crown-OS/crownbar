@@ -600,11 +600,13 @@ dependencies = [
  "crownbar-integrations",
  "crownbar-ui",
  "crownconfig",
+ "crownos-config",
  "crownos-ipc",
  "crownui",
  "env_logger",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

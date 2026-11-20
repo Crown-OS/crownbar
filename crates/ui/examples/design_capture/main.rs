@@ -55,9 +55,10 @@ fn mount(settings: &BarSettings, snapshots: Snapshots, panel_open: bool) -> Resu
     };
     let root = crownbar_ui::root(
         Services::still(snapshots)?,
-        Wake::default(),
+        Wake::default().subscribe(),
         appearance,
         settings.clone(),
+        None,
     );
     let mut app = capture::mount_app(
         root,

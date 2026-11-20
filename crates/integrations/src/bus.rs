@@ -11,22 +11,40 @@
 
 use std::sync::Arc;
 
-use tokio::sync::{Notify, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 
-/// The one road from any service thread back onto the UI thread. A wake that
-/// lands while nobody is waiting is kept, so none is ever lost between two
-/// snapshots being read.
-#[derive(Clone, Default)]
-pub struct Wake(Arc<Notify>);
+/// The one road from any service thread back onto the UI thread. Every bar
+/// holds a [`Woken`] of its own, so one wake reaches all of them.
+#[derive(Clone)]
+pub struct Wake(Arc<watch::Sender<u64>>);
+
+impl Default for Wake {
+    fn default() -> Self {
+        Self(Arc::new(watch::Sender::new(0)))
+    }
+}
 
 impl Wake {
     pub fn wake(&self) {
-        self.0.notify_one();
+        self.0.send_modify(|count| *count = count.wrapping_add(1));
     }
 
+    /// A receiver that resolves at every wake from now on.
+    pub fn subscribe(&self) -> Woken {
+        Woken(self.0.subscribe())
+    }
+}
+
+/// One bar's end of a [`Wake`]. A wake that lands while nobody is waiting is
+/// kept, so none is ever lost between two snapshots being read.
+pub struct Woken(watch::Receiver<u64>);
+
+impl Woken {
     /// Resolves at the next wake, or at once if one is already pending.
-    pub async fn woken(self) {
-        self.0.notified().await;
+    pub async fn woken(&mut self) {
+        if self.0.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
     }
 }
 

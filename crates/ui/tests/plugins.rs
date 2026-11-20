@@ -274,7 +274,13 @@ fn a_plugin_pill_follows_its_daemon() {
     let wake = Wake::default();
     let services = Services::start(wake.clone()).expect("services start");
     let mut app = TestApp::with_size(
-        crownbar_ui::root(services, wake, Appearance::default(), settings),
+        crownbar_ui::root(
+            services,
+            wake.subscribe(),
+            Appearance::default(),
+            settings,
+            None,
+        ),
         SURFACE.0,
         SURFACE.1,
     );

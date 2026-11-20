@@ -1,8 +1,9 @@
 //! Every service the bar owns, and the runtime they live on.
 //!
-//! `Services` lives in the bar's root component for the life of the UI — so the
-//! runtime, the PipeWire loop and every live subscription are dropped exactly
-//! when the UI goes away, in that order.
+//! `Services` is shared by every bar as an `Arc`, so the runtime, the PipeWire
+//! loop and every live subscription are dropped when the last holder goes.
+
+use std::sync::Arc;
 
 use tokio::runtime::Runtime;
 
@@ -57,7 +58,7 @@ pub struct Snapshots {
 }
 
 impl Services {
-    pub fn start(wake: Wake) -> anyhow::Result<Self> {
+    pub fn start(wake: Wake) -> anyhow::Result<Arc<Self>> {
         let rt = runtime::build()?;
 
         let (assistant_backend, assistant) =
@@ -123,7 +124,7 @@ impl Services {
         };
         rt.spawn(live::run(live_backend, bridges));
 
-        Ok(Self {
+        Ok(Arc::new(Self {
             assistant,
             audio,
             battery,
@@ -142,14 +143,14 @@ impl Services {
             weather,
             workspace_mode,
             _runtime: rt,
-        })
+        }))
     }
 
     /// Every service holding `snapshots` for good, with no backend behind it:
     /// the bar as sample readings draw it, never this machine.
-    pub fn still(snapshots: Snapshots) -> anyhow::Result<Self> {
+    pub fn still(snapshots: Snapshots) -> anyhow::Result<Arc<Self>> {
         let wake = Wake::default();
-        Ok(Self {
+        Ok(Arc::new(Self {
             assistant: bus::connect(snapshots.assistant, &wake).1,
             audio: bus::connect(snapshots.audio, &wake).1,
             battery: bus::connect(snapshots.battery, &wake).1,
@@ -168,6 +169,6 @@ impl Services {
             weather: bus::connect(snapshots.weather, &wake).1,
             workspace_mode: bus::connect(snapshots.workspace_mode, &wake).1,
             _runtime: runtime::build()?,
-        })
+        }))
     }
 }

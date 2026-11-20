@@ -22,6 +22,8 @@ pub mod theme;
 mod util;
 mod wallpaper;
 
+use std::sync::Arc;
+
 use crownbar_config::{BarConfig, BarSettings};
 use crownconfig::Appearance;
 use crownui::{
@@ -33,7 +35,7 @@ use crate::{
     backdrop::Ground,
     theme::{Behind, Palette},
 };
-use crownbar_integrations::{Services, Wake};
+use crownbar_integrations::{Services, Woken};
 use crownbar_widgets::{Arrangement, WidgetRegistry};
 use state::{Bar, BarState};
 
@@ -44,11 +46,13 @@ pub use app_config::app_config;
 /// the bar's edge.
 pub const PANEL_GAP: f32 = 4.0;
 
+/// The bar on the output called `output`, or on an output with no name.
 pub fn root(
-    services: Services,
-    wake: Wake,
+    services: Arc<Services>,
+    woken: Woken,
     appearance: Appearance,
     settings: BarSettings,
+    output: Option<Arc<str>>,
 ) -> impl View {
     component(move |cx| {
         let theme = provide_configured_theme(cx);
@@ -70,12 +74,13 @@ pub fn root(
         });
         let arrangement = Arrangement::from(&settings);
         let state = BarState {
-            widgets: WidgetRegistry::arranged(&arrangement),
+            widgets: WidgetRegistry::arranged(&arrangement, output.as_deref()),
             arrangement,
             services,
+            output,
         };
         let bar = Bar::new(cx, state, palette, config);
-        sync::start(cx, bar, wake);
+        sync::start(cx, bar, woken);
         sync::bar_shape(cx, bar, settings, appearance);
         zstack((
             probe::size_probe(bar.surface).absolute().inset(0.0),

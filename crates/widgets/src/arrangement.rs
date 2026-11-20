@@ -52,8 +52,8 @@ fn in_slot(slot: WidgetSlot, entries: &[String]) -> impl Iterator<Item = (Widget
     entries.iter().map(move |entry| (slot, entry.as_str()))
 }
 
-/// The built-in widget called `name`.
-pub fn builtin(name: &str) -> Option<Box<dyn BarWidget>> {
+/// The built-in widget called `name`, on the bar of the output called `output`.
+pub fn builtin(name: &str, _output: Option<&str>) -> Option<Box<dyn BarWidget>> {
     let widget: Box<dyn BarWidget> = match name {
         "assistant" => Box::new(crate::assistant::AssistantWidget::new()),
         "clock" => Box::new(ClockWidget::new()),
@@ -72,16 +72,17 @@ pub fn builtin(name: &str) -> Option<Box<dyn BarWidget>> {
     Some(widget)
 }
 
-fn widget(entry: &str) -> Option<Box<dyn BarWidget>> {
+fn widget(entry: &str, output: Option<&str>) -> Option<Box<dyn BarWidget>> {
     match BarSettings::plugin_entry(entry) {
         Some((plugin, widget)) => Some(Box::new(RemoteWidget::new(entry, plugin, widget))),
-        None => builtin(entry),
+        None => builtin(entry, output),
     }
 }
 
 impl WidgetRegistry {
-    /// Every widget `arrangement` names, in its slot.
-    pub fn arranged(arrangement: &Arrangement) -> Self {
+    /// Every widget `arrangement` names, in its slot, for the bar on the
+    /// output called `output`.
+    pub fn arranged(arrangement: &Arrangement, output: Option<&str>) -> Self {
         let mut registry = Self::new();
         for (slot, entry) in arrangement.entries() {
             if entry == LIVE {
@@ -90,7 +91,7 @@ impl WidgetRegistry {
                 }
                 continue;
             }
-            match widget(entry) {
+            match widget(entry, output) {
                 Some(widget) => registry.register(widget, slot),
                 None => log::warn!("bar.ron names `{entry}`, which is no widget"),
             }
@@ -119,7 +120,7 @@ mod tests {
 
     #[test]
     fn the_default_settings_are_the_stock_bar() {
-        let registry = WidgetRegistry::arranged(&Arrangement::from(&BarSettings::default()));
+        let registry = WidgetRegistry::arranged(&Arrangement::from(&BarSettings::default()), None);
         let placed = layout(&registry);
         let left = 1 + MAX_CHIPS;
         assert_eq!(placed[0], (WidgetSlot::Left, "clock".to_owned()));
@@ -158,7 +159,7 @@ mod tests {
             center: vec!["clock".into(), "no-such-widget".into()],
             right: vec!["battery".into()],
         };
-        let registry = WidgetRegistry::arranged(&arrangement);
+        let registry = WidgetRegistry::arranged(&arrangement, None);
         assert_eq!(
             layout(&registry),
             [
@@ -185,7 +186,7 @@ mod tests {
             .chain(&BarSettings::default().right)
             .filter(|name| *name != LIVE)
         {
-            let widget = builtin(name).map(|widget| widget.id().to_owned());
+            let widget = builtin(name, None).map(|widget| widget.id().to_owned());
             assert_eq!(widget.as_deref(), Some(name.as_str()));
         }
     }
@@ -197,7 +198,7 @@ mod tests {
             ..Arrangement::default()
         };
         assert_eq!(
-            WidgetRegistry::arranged(&arrangement).len(),
+            WidgetRegistry::arranged(&arrangement, None).len(),
             crate::MAX_WIDGETS
         );
     }

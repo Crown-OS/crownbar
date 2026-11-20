@@ -21,7 +21,7 @@ fn bar_with(settings: BarSettings) -> (TestApp, f32) {
     let wake = Wake::default();
     let services = Services::start(wake.clone()).expect("services start");
     let mut app = TestApp::with_size(
-        crownbar_ui::root(services, wake, appearance, settings),
+        crownbar_ui::root(services, wake.subscribe(), appearance, settings, None),
         SURFACE.0,
         SURFACE.1,
     );

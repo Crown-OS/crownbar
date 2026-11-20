@@ -19,20 +19,24 @@ use crate::{
     state::Bar,
     wallpaper::{self, Backdrop},
 };
-use crownbar_integrations::{Wake, caffeine};
+use crownbar_integrations::{Woken, caffeine};
 use crownbar_widgets::{Arrangement, WidgetRegistry};
 
-pub fn start(cx: &mut Cx, bar: Bar, wake: Wake) {
+pub fn start(cx: &mut Cx, bar: Bar, woken: Woken) {
     services_changed(cx, bar);
-    follow_services(cx, bar, wake);
+    follow_services(cx, bar, woken);
     tick(cx, bar);
 }
 
 /// Waits for the next service snapshot, takes it, and waits again.
-fn follow_services(cx: &mut Cx, bar: Bar, wake: Wake) {
-    cx.spawn(wake.clone().woken(), move |cx, ()| {
+fn follow_services(cx: &mut Cx, bar: Bar, mut woken: Woken) {
+    let next = async move {
+        woken.woken().await;
+        woken
+    };
+    cx.spawn(next, move |cx, woken| {
         services_changed(cx, bar);
-        follow_services(cx, bar, wake);
+        follow_services(cx, bar, woken);
     });
 }
 
@@ -181,9 +185,10 @@ struct ShapeSources {
 }
 
 /// `bar.ron` and `appearance.bar_height`, following both files. A new
-/// arrangement rebuilds the strip, and a new shape resizes the bar, at once; a
-/// move to the other edge waits for a restart, since the layer surface's
-/// anchor is described to the compositor only when it is made.
+/// arrangement rebuilds the strip, and a new shape resizes the bar, at once. A
+/// move to the other edge is not applied here: the runner builds a new layer
+/// surface for it, since the anchor is given to the compositor only when the
+/// surface is made.
 pub fn bar_shape(cx: &mut Cx, bar: Bar, settings: BarSettings, appearance: Appearance) {
     let sources = cx.store(ShapeSources {
         settings: settings.clone(),
@@ -192,9 +197,13 @@ pub fn bar_shape(cx: &mut Cx, bar: Bar, settings: BarSettings, appearance: Appea
     let settings_watch = crownconfig::watch_section(BarSettings::SECTION, settings);
     follow(cx, settings_watch, move |cx, settings: BarSettings| {
         let arrangement = Arrangement::from(&settings);
-        if bar.state.with(cx, |state| state.arrangement != arrangement) {
+        let rearranged = bar.state.with(cx, |state| {
+            (state.arrangement != arrangement)
+                .then(|| WidgetRegistry::arranged(&arrangement, state.output.as_deref()))
+        });
+        if let Some(widgets) = rearranged {
             popup::dismiss(cx, bar);
-            bar.rearrange(cx, WidgetRegistry::arranged(&arrangement), arrangement);
+            bar.rearrange(cx, widgets, arrangement);
         }
         sources.update(cx, |sources| sources.settings = settings);
         reshape(cx, bar, sources);
@@ -216,9 +225,6 @@ fn reshape(cx: &mut Cx, bar: Bar, sources: Store<ShapeSources>) {
         BarConfig::new(&sources.settings, sources.fallback_height)
     });
     let current = bar.config.with_untracked(cx, |config| *config);
-    if wanted.position != current.position {
-        log::info!("bar.ron moves the bar to the other edge; restart crownbar to apply it");
-    }
     let next = current.reshaped_to(wanted);
     if next == current {
         return;

@@ -39,7 +39,7 @@ mod runtime;
 mod status;
 mod util;
 
-pub use bus::Wake;
+pub use bus::{Wake, Woken};
 pub use hub::{Services, Snapshots};
 pub use link::SettingsPane;
 pub use status::{Availability, ErrorKind, Failure, Interest};
