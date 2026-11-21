@@ -28,7 +28,7 @@ use crownbar_config::{BarConfig, BarSettings};
 use crownconfig::Appearance;
 use crownui::{
     kit::{INTER_FAMILY, provide_configured_theme},
-    prelude::{Styled, View, component, zstack},
+    prelude::{Listeners, Styled, View, component, zstack},
 };
 
 use crate::{
@@ -84,10 +84,13 @@ pub fn root(
         sync::bar_shape(cx, bar, settings, appearance);
         zstack((
             probe::size_probe(bar.surface).absolute().inset(0.0),
-            bar::bar_strip(bar),
+            bar::bar_ground(bar),
             popup::panel_host(bar),
+            bar::bar_pills(bar),
         ))
         .font_family(INTER_FAMILY)
+        .on_pointer_enter(move |cx, _| popup::pointer_entered_bar(cx, bar))
+        .on_pointer_leave(move |cx, _| popup::pointer_left_bar(cx, bar))
         .pointer_events_none()
     })
 }

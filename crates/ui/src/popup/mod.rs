@@ -1,7 +1,7 @@
 //! The panel a pill opens: when it opens, what it shows, and how it moves.
 //!
-//! There is one panel for the life of the bar. A click on a pill throws it out
-//! of that pill; a click on another pill morphs it into the other panel; a
+//! There is one panel for the life of the bar. A click on a pill brings it out
+//! from behind that pill; a click on another pill morphs it into the other panel; a
 //! click anywhere else, or an action that is done with it, puts it away. The
 //! rows are the widget's own [`PopupSpec`](crownbar_widgets::PopupSpec), rebuilt
 //! whenever what they show went stale.
@@ -16,9 +16,9 @@ pub use host::panel_host;
 
 use crownbar_config::BarPosition;
 use crownui::prelude::{Cx, LayerExtent, Runtime, Size};
-use kurbo::Rect;
+use kurbo::{Rect, Vec2};
 
-use crate::{PANEL_GAP, frames::animate, state::Bar};
+use crate::{frames::animate, state::Bar};
 use crownbar_widgets::{AfterAction, PopupAction, bit};
 use motion::{Opening, PanelMotion};
 
@@ -29,9 +29,9 @@ pub const PANEL_RADIUS: f32 = rows::ROW_INSET + rows::ITEM_HEIGHT / 2.0;
 /// Smallest distance the panel keeps from the screen's left/right edges.
 const SCREEN_MARGIN: f64 = 8.0;
 
-/// Open `idx`'s panel under a pill centred on `anchor_x`, or put it away if it
+/// Open `idx`'s panel out of its `pill`, in surface px, or put it away if it
 /// is the one already up.
-pub fn toggle(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
+pub fn toggle(cx: &mut Cx, bar: Bar, idx: usize, pill: Rect) {
     if bar
         .popup
         .owner
@@ -39,11 +39,12 @@ pub fn toggle(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
     {
         close(cx, bar);
     } else {
-        open(cx, bar, idx, anchor_x);
+        open(cx, bar, idx, pill);
     }
 }
 
-fn open(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
+fn open(cx: &mut Cx, bar: Bar, idx: usize, pill: Rect) {
+    let anchor_x = pill.center().x as f32;
     let popup = bar.popup;
     let previous = popup.owner.with_untracked(cx, |owner| *owner);
     if let Some(previous) = previous {
@@ -68,18 +69,24 @@ fn open(cx: &mut Cx, bar: Bar, idx: usize, anchor_x: f32) {
     popup.slide.set(cx, slide);
     popup.owner.set(cx, Some(idx));
     popup.anchor_x.set(cx, anchor_x);
+    let surface_height = bar
+        .surface
+        .with_untracked(cx, |size| f64::from(size.height));
+    popup
+        .source
+        .set(cx, from_bar_edge(bar, pill, surface_height));
     if shown != Some(idx) || previous.is_none() {
         popup.motion.update(cx, |motion| motion.open(replacing));
     }
     if !present {
         let birth = popup
             .motion
-            .with(cx, |motion| motion.frame(f64::from(anchor_x), opening(bar)));
+            .with(cx, |motion| motion.frame(pill, opening(bar)));
         popup.frame.set(cx, birth);
         popup.shown.set(cx, Some(idx));
     }
     popup.present.set(cx, true);
-    cx.set_layer_height(LayerExtent::Output);
+    grow_to_output(cx);
     animate(cx, bar, 0);
 }
 
@@ -114,14 +121,44 @@ pub fn dismiss(cx: &mut Cx, bar: Bar) {
     popup
         .motion
         .update(cx, |motion| *motion = PanelMotion::new());
-    shrink_to_strip(cx, bar);
+    shrink_unless_pointed_at(cx, bar);
+}
+
+/// The pointer came onto the surface, which with no panel up is the strip: the
+/// surface grows to the whole output now, so the buffers a panel needs are
+/// built before the click that opens it rather than in its first frame.
+pub fn pointer_entered_bar(cx: &mut Cx, bar: Bar) {
+    bar.popup.pointer_on_bar.set(cx, true);
+    grow_to_output(cx);
+}
+
+/// The pointer left the surface: with no panel up, it goes back to the strip.
+pub fn pointer_left_bar(cx: &mut Cx, bar: Bar) {
+    bar.popup.pointer_on_bar.set(cx, false);
+    if !bar.popup.present.with_untracked(cx, |present| *present) {
+        shrink_to_strip(cx, bar);
+    }
+}
+
+fn grow_to_output(cx: &mut Cx) {
+    cx.set_layer_height(LayerExtent::Output);
 }
 
 /// Every pixel of the surface is GPU memory, drawn on or not, so it gives the
-/// room beside the bar back once no panel is left on screen.
+/// room beside the bar back once no panel is up and the pointer is elsewhere.
 fn shrink_to_strip(cx: &mut Cx, bar: Bar) {
     let reach = bar.config.with_untracked(cx, |config| config.reach());
     cx.set_layer_height(LayerExtent::Fixed(reach));
+}
+
+fn shrink_unless_pointed_at(cx: &mut Cx, bar: Bar) {
+    if !bar
+        .popup
+        .pointer_on_bar
+        .with_untracked(cx, |on_bar| *on_bar)
+    {
+        shrink_to_strip(cx, bar);
+    }
 }
 
 /// Whether the surface has grown past the strip, so a panel has somewhere to
@@ -129,6 +166,24 @@ fn shrink_to_strip(cx: &mut Cx, bar: Bar) {
 /// the surface as it grows, and a spring already under way would chase it.
 fn has_room(runtime: &mut Runtime, bar: Bar, surface: Size) -> bool {
     surface.height > bar.config.with_untracked(runtime, |config| config.reach()) as f32
+}
+
+/// `rect`, in surface px, measured from the screen edge the bar sits on. A bar
+/// on the bottom edge moves down the surface as the surface grows to hold a
+/// panel, and its pills move with it.
+fn from_bar_edge(bar: Bar, rect: Rect, surface_height: f64) -> Rect {
+    match bar.position {
+        BarPosition::Top => rect,
+        BarPosition::Bottom => rect - Vec2::new(0.0, surface_height),
+    }
+}
+
+/// The inverse of [`from_bar_edge`].
+fn from_surface_top(bar: Bar, rect: Rect, surface_height: f64) -> Rect {
+    match bar.position {
+        BarPosition::Top => rect,
+        BarPosition::Bottom => rect + Vec2::new(0.0, surface_height),
+    }
 }
 
 /// A widget that started a poll loop when its panel opened stops it here.
@@ -207,26 +262,30 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
     let anchor_x = popup
         .anchor_x
         .with_untracked(cx, |anchor| f64::from(*anchor));
+    let surface_height = f64::from(surface.height);
+    let reach = f64::from(bar.config.with_untracked(cx, |config| config.reach()));
     let top = match bar.position {
-        BarPosition::Top => f64::from(PANEL_GAP),
-        BarPosition::Bottom => {
-            let host = f64::from(surface.height) - f64::from(host_offset(cx, bar));
-            host - f64::from(PANEL_GAP) - height
-        }
+        BarPosition::Top => reach,
+        BarPosition::Bottom => surface_height - reach - height,
     };
+    let pill = from_surface_top(
+        bar,
+        popup.source.with_untracked(cx, |source| *source),
+        surface_height,
+    );
     let opening = opening(bar);
     let target = target_bounds(anchor_x, top, height, f64::from(surface.width));
     let (moving, frame, gone) = popup.motion.update(cx, |motion| {
         motion.reshape(target);
         let moving = motion.step(dt);
-        (moving, motion.frame(anchor_x, opening), motion.invisible())
+        (moving, motion.frame(pill, opening), motion.invisible())
     });
     popup.frame.set(cx, frame);
 
     if owner.is_none() && gone {
         popup.shown.set(cx, None);
         popup.present.set(cx, false);
-        shrink_to_strip(cx, bar);
+        shrink_unless_pointed_at(cx, bar);
         return false;
     }
     let polling = owner.is_some_and(|idx| {
@@ -244,13 +303,6 @@ pub fn step(cx: &mut Cx, bar: Bar, dt: f32) -> bool {
         busy
     });
     moving || polling
-}
-
-/// How far the area panels open into is set back from the bar's screen edge:
-/// to the line the bar reserves, which stops [`PANEL_GAP`] short of its far
-/// edge.
-pub fn host_offset(runtime: &mut Runtime, bar: Bar) -> f32 {
-    bar.config.get(runtime).reach() as f32 - PANEL_GAP
 }
 
 /// Where the panel wants to be: centred on its pill with its top edge at

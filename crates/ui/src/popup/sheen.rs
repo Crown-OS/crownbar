@@ -7,7 +7,6 @@ use crownui::{
     prelude::{Color, CornerRadii, Point, Rect, Size, Styled, View, canvas},
 };
 
-use super::PANEL_RADIUS;
 use crate::{state::Bar, theme::Glass};
 
 /// How far down the body the top gloss reaches, in logical px.
@@ -18,7 +17,8 @@ const UNDERGLOW: f32 = 0.6;
 pub fn sheen(bar: Bar, rim: f32) -> impl View {
     canvas(move |runtime, size, list| {
         let glass = bar.palette.get(runtime).glass;
-        paint(list, size, &glass, PANEL_RADIUS, rim);
+        let radius = bar.popup.frame.with(runtime, |frame| frame.radius as f32);
+        paint(list, size, &glass, radius, rim);
     })
     .absolute()
     .inset(0.0)

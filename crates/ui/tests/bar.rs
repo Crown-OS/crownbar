@@ -133,45 +133,117 @@ fn a_floating_bar_at_the_bottom_opens_its_panels_upward() {
     assert!(!app.exists(role(Role::Group).name("Calendar")));
 }
 
-/// The scale of every faded layer in `frame`: the panel's rows while they come out.
-fn fading_scales(frame: &str) -> Vec<f32> {
+/// The turn of every tilted layer in `frame`: the panel while it comes out
+/// from behind its pill.
+fn tilts(frame: &str) -> Vec<f32> {
     frame
         .lines()
-        .filter(|line| line.trim_start().starts_with("layer") && line.contains("opacity"))
-        .map(|line| {
-            line.split_once("transform [")
-                .and_then(|(_, rest)| rest.split(',').next()?.parse().ok())
-                .unwrap_or(1.0)
+        .filter_map(|line| {
+            line.split_once(" tilt ")?
+                .1
+                .split("deg")
+                .next()?
+                .parse()
+                .ok()
         })
         .collect()
 }
 
-fn opening_scales(app: &mut TestApp) -> Vec<Vec<f32>> {
+fn opening_tilts(app: &mut TestApp) -> Vec<Vec<f32>> {
     let pill = app.find(role(Role::Button).name("clock")).bounds.center();
     app.pointer_down(pill.x, pill.y).pointer_up(pill.x, pill.y);
-    let scales = (0..4)
-        .map(|_| fading_scales(&app.advance_ms(16).frame_snapshot()))
+    let tilts = (0..4)
+        .map(|_| tilts(&app.advance_ms(16).frame_snapshot()))
         .collect();
     app.settle();
-    scales
+    tilts
 }
 
 #[test]
-fn the_first_panel_grows_out_of_its_pill_like_every_later_one() {
+fn the_first_panel_comes_out_of_its_pill_like_every_later_one() {
     let (mut app, _) = bar();
-    let first = opening_scales(&mut app);
+    let first = opening_tilts(&mut app);
     app.pointer_down(SURFACE.0 - 20.0, SURFACE.1 - 20.0)
         .pointer_up(SURFACE.0 - 20.0, SURFACE.1 - 20.0);
     app.settle();
-    let second = opening_scales(&mut app);
+    let second = opening_tilts(&mut app);
     assert!(
-        first.iter().flatten().any(|scale| *scale < 1.0),
-        "{first:?}"
+        first.iter().flatten().any(|pitch| *pitch > 10.0),
+        "the panel did not come out tilted back: {first:?}"
     );
-    let matches = first.len() == second.len()
-        && first
-            .iter()
-            .zip(&second)
-            .all(|(a, b)| a.len() == b.len() && a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3));
-    assert!(matches, "first {first:?}\nsecond {second:?}");
+    assert_eq!(first, second);
+}
+
+/// Layers drawn as a stretched image: their text is soft.
+fn stretched(frame: &str) -> Vec<&str> {
+    frame
+        .lines()
+        .filter(|line| line.contains(" as image"))
+        .collect()
+}
+
+#[test]
+fn a_panel_at_rest_is_flat_and_sharp() {
+    let (mut app, _) = bar();
+    app.click(role(Role::Button).name("clock"));
+    let moving = app.advance_ms(200).frame_snapshot();
+    assert!(
+        !stretched(&moving).is_empty(),
+        "the rows do not stretch as an image while the panel grows: {moving}"
+    );
+    app.settle();
+    let frame = app.frame_snapshot();
+    assert!(tilts(&frame).is_empty(), "{frame}");
+    assert!(stretched(&frame).is_empty(), "{frame}");
+
+    app.click(role(Role::Button).name("wifi"));
+    app.settle();
+    let switched = app.frame_snapshot();
+    assert!(stretched(&switched).is_empty(), "{switched}");
+}
+
+fn requested_height(app: &mut TestApp) -> Option<crownui::prelude::LayerExtent> {
+    app.ui().layer_height_request()
+}
+
+#[test]
+fn the_surface_is_ready_for_a_panel_while_the_pointer_is_on_the_bar() {
+    use crownui::prelude::LayerExtent;
+    let (mut app, height) = bar();
+    let pill = app.find(role(Role::Button).name("clock")).bounds.center();
+    app.pointer_move(4.0, height / 2.0);
+    app.settle();
+    assert_eq!(requested_height(&mut app), Some(LayerExtent::Output));
+
+    app.pointer_move(pill.x, pill.y);
+    app.settle();
+    assert_eq!(
+        requested_height(&mut app),
+        Some(LayerExtent::Output),
+        "moving onto a pill is still on the bar"
+    );
+
+    app.pointer_leave(pill.x, pill.y);
+    app.settle();
+    assert!(
+        matches!(requested_height(&mut app), Some(LayerExtent::Fixed(_))),
+        "with no panel up the surface goes back to the strip"
+    );
+}
+
+#[test]
+fn a_panel_put_away_with_the_pointer_gone_gives_the_room_back() {
+    use crownui::prelude::LayerExtent;
+    let (mut app, _) = bar();
+    app.click(role(Role::Button).name("clock"));
+    app.settle();
+    app.pointer_down(SURFACE.0 - 20.0, SURFACE.1 - 20.0)
+        .pointer_up(SURFACE.0 - 20.0, SURFACE.1 - 20.0)
+        .pointer_leave(SURFACE.0 - 20.0, SURFACE.1 - 20.0);
+    app.settle();
+    assert!(!app.exists(role(Role::Group).name("Calendar")));
+    assert!(matches!(
+        requested_height(&mut app),
+        Some(LayerExtent::Fixed(_))
+    ));
 }

@@ -127,12 +127,17 @@ impl Kind for PillKind {
 
 /// A widget with a panel opens it; one without gets the click.
 fn press(cx: &mut Cx, bar: Bar, index: usize, node: NodeId) {
-    let anchor_x = cx
+    let pill = cx
         .tree()
         .get(node)
         .map(|pill| {
             let rect = pill.geometry().window_rect;
-            rect.min_x() + rect.size.width * 0.5
+            kurbo::Rect::new(
+                f64::from(rect.min_x()),
+                f64::from(rect.min_y()),
+                f64::from(rect.max_x()),
+                f64::from(rect.max_y()),
+            )
         })
         .unwrap_or_default();
     let open_here = bar
@@ -144,7 +149,7 @@ fn press(cx: &mut Cx, bar: Bar, index: usize, node: NodeId) {
             .state
             .update(cx, |state| state.widgets.has_popup(index, &state.services));
     if has_panel {
-        popup::toggle(cx, bar, index, anchor_x);
+        popup::toggle(cx, bar, index, pill);
         return;
     }
     if bar

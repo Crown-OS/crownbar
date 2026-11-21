@@ -9,7 +9,8 @@ use crownui::{
 use crate::{PANEL_GAP, theme};
 
 /// The bar's window: a transparent layer surface along its edge, only the
-/// strip tall until a panel opens (the surface then grows to the whole output).
+/// strip tall until the pointer comes to the bar (the surface then grows to
+/// the whole output, ready for a panel).
 pub fn app_config(bar_config: &BarConfig) -> AppConfig {
     let edge = match bar_config.position {
         BarPosition::Top => Anchor::TOP,

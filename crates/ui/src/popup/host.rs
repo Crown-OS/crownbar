@@ -1,16 +1,18 @@
-//! Where the panel is drawn: the area below the bar.
+//! Where the panel is drawn: the whole surface, above the bar's ground and
+//! below its pills, so a panel comes out from behind the pill it belongs to.
 //!
-//! The panel is one rounded body whose bounds are sprung (see
-//! [`super::motion`]). Everything that has to agree with it follows the same
-//! frame: the body laid out at the shape as it lands on screen, the rows
-//! stretched onto it from its corner, and the material the compositor renders
-//! *under* it — the blur, its vibrancy and the refractive rim, which a
-//! translucent surface cannot do for itself because what sits behind it
-//! belongs to other clients. A compositor that will not blur gets an opaque
-//! body instead: a translucent panel over an unblurred wallpaper is not readable.
+//! The panel is one rounded body whose bounds, corners and tilt are sprung
+//! (see [`super::motion`]). Everything that has to agree with it follows the
+//! same frame: the body laid out at the shape, turned in perspective on the
+//! GPU, the rows stretched onto it from its corner, and the material the
+//! compositor renders *under* it — the blur, its vibrancy and the refractive
+//! rim, which a translucent surface cannot do for itself because what sits
+//! behind it belongs to other clients. The body is opaque until the glass
+//! comes in, and stays opaque on a compositor that will not blur: a
+//! translucent panel over an unblurred wallpaper is not readable.
 
-use crownbar_config::BarPosition;
 use crownui::{
+    ext::{Modifier, StyleProp},
     kit::INTER_FAMILY,
     prelude::{
         Listeners, Material, MaterialBlur, Runtime, Styled, TRANSPARENT, Vector, View, bind,
@@ -18,7 +20,7 @@ use crownui::{
     },
 };
 
-use super::{PANEL_RADIUS, PANEL_WIDTH, close, host_offset, rows, sheen::sheen};
+use super::{PANEL_WIDTH, close, motion::Frame, rows, sheen::sheen};
 use crate::{
     pill::nothing,
     state::Bar,
@@ -39,9 +41,6 @@ const RIM: f32 = 1.5;
 /// How far rows slide when the panel moves to another pill, in logical px.
 const SLIDE: f32 = PANEL_WIDTH / 3.0;
 
-/// The area beside the bar, starting where the bar's reserved space ends so a
-/// panel thrown out of its pill disappears under the bar's edge rather than
-/// over it.
 pub fn panel_host(bar: Bar) -> impl View {
     let present = bar.popup.present;
     let open = move || {
@@ -50,17 +49,10 @@ pub fn panel_host(bar: Bar) -> impl View {
             .inset(0.0)
             .pointer_events_none()
     };
-    let host = zstack(show(present, open, nothing).absolute().inset(0.0))
+    zstack(show(present, open, nothing).absolute().inset(0.0))
         .absolute()
-        .left(0.0)
-        .right(0.0)
-        .overflow_hidden()
-        .pointer_events_none();
-    let offset = bind(move |runtime| host_offset(runtime, bar));
-    match bar.position {
-        BarPosition::Top => host.top(offset).bottom(0.0),
-        BarPosition::Bottom => host.top(0.0).bottom(offset),
-    }
+        .inset(0.0)
+        .pointer_events_none()
 }
 
 /// While a panel is up the whole area takes the pointer, so a click outside
@@ -78,35 +70,44 @@ fn body(bar: Bar) -> impl View {
     component(move |cx| {
         let capabilities = cx.platform_capabilities();
         let blurred = cx.memo(move |runtime| capabilities.get(runtime).materials);
+        let read = move |runtime: &mut Runtime, field: fn(&Frame) -> f64| {
+            frame.with(runtime, |frame| field(frame) as f32)
+        };
         // Whole px: the compositor cuts the blur from the body's shape in
         // whole px, and a body between them would leave a sliver of either
         // along its far edges while it moves.
-        let visible =
-            move |runtime: &mut Runtime| frame.with(runtime, |frame| frame.visible().round());
+        let shape = move |runtime: &mut Runtime| frame.with(runtime, |frame| frame.bounds.round());
         provide_derived_theme(cx, move |runtime| bar.palette.get(runtime).panel_theme);
         zstack((sheen(bar, RIM), rows_layer(bar)))
             .absolute()
-            .left(bind(move |runtime| visible(runtime).x0 as f32))
-            .top(bind(move |runtime| visible(runtime).y0 as f32))
-            .w(bind(move |runtime| visible(runtime).width() as f32))
-            .h(bind(move |runtime| visible(runtime).height() as f32))
-            .rounded(PANEL_RADIUS)
+            .left(bind(move |runtime| shape(runtime).x0 as f32))
+            .top(bind(move |runtime| shape(runtime).y0 as f32))
+            .w(bind(move |runtime| shape(runtime).width() as f32))
+            .h(bind(move |runtime| shape(runtime).height() as f32))
+            .rounded(bind(move |runtime| read(runtime, |frame| frame.radius)))
             .overflow_hidden()
+            .modifier(Modifier::Bound(Box::new(move |runtime| {
+                StyleProp::Origin(Vector::new(read(runtime, |frame| frame.vanishing_x), 0.5))
+            })))
+            .rotate_x(bind(move |runtime| read(runtime, |frame| frame.pitch)))
+            .perspective(bind(move |runtime| {
+                read(runtime, |frame| frame.perspective)
+            }))
             .bg(bind(move |runtime| {
                 let body = bar.palette.get(runtime).glass.body;
+                let solid = theme::opaque(body);
                 if blurred.get(runtime) {
-                    body
+                    solid.lerp(body, frame.with(runtime, |frame| frame.glass))
                 } else {
-                    theme::opaque(body)
+                    solid
                 }
             }))
             .opacity(bind(move |runtime| {
                 frame.with(runtime, |frame| frame.alpha)
             }))
             .material(bind(move |runtime| {
-                let alpha = frame.with(runtime, |frame| frame.alpha);
                 if blurred.get(runtime) {
-                    material(alpha)
+                    material(frame.with(runtime, |frame| frame.glass))
                 } else {
                     Material::default()
                 }
@@ -116,7 +117,8 @@ fn body(bar: Bar) -> impl View {
 }
 
 /// The shown panel's rows, stretched from the body's corner onto the shape as
-/// it lands. A change of panel slides the next rows in from the side the
+/// it lands. The stretch and the fade move one drawn image of the rows, so the
+/// text is not drawn again at each new scale and the rows need one layer. A change of panel slides the next rows in from the side the
 /// panel is travelling toward while the last ones slide out the other way.
 fn rows_layer(bar: Bar) -> impl View {
     let popup = bar.popup;
@@ -163,13 +165,6 @@ fn rows_layer(bar: Bar) -> impl View {
             .w(PANEL_WIDTH)
             .py(rows::PAD_Y)
             .font_family(INTER_FAMILY)
-            .origin(0.0, 0.0)
-            .scale_x(bind(move |runtime| {
-                frame.with(runtime, |frame| frame.scale().0 as f32)
-            }))
-            .scale_y(bind(move |runtime| {
-                frame.with(runtime, |frame| frame.scale().1 as f32)
-            }))
             .translate(bind(move |runtime| {
                 let owner = popup.owner.get(runtime);
                 let leaving = owner.is_some() && owner != shown;
@@ -187,17 +182,26 @@ fn rows_layer(bar: Bar) -> impl View {
     )
     .absolute()
     .inset(0.0)
+    .origin(0.0, 0.0)
+    .will_change_transform()
+    .scale_x(bind(move |runtime| {
+        frame.with(runtime, |frame| frame.scale().0 as f32)
+    }))
+    .scale_y(bind(move |runtime| {
+        frame.with(runtime, |frame| frame.scale().1 as f32)
+    }))
+    .opacity(bind(move |runtime| frame.with(runtime, |frame| frame.rows)))
 }
 
 /// What the compositor renders under the panel. The blur comes up with the
-/// panel — a radius that tracks the fade keeps the wallpaper from going
-/// frosted before there is anything on it — and squaring it lets the blur,
-/// and the rim with it, reach zero while the rows are still just visible.
+/// glass — a radius that tracks it keeps the wallpaper from going frosted
+/// before the panel is flat on it — and squaring it lets the blur, and the
+/// rim with it, reach zero while the rows are still just visible.
 ///
 /// The blur takes its corners from the body's own shape. A corner radius here
 /// would round the whole layer surface — the bar included — so there is none.
-fn material(alpha: f32) -> Material {
-    let strength = alpha.clamp(0.0, 1.0);
+fn material(glass: f32) -> Material {
+    let strength = glass.clamp(0.0, 1.0);
     Material {
         corner_radius: 0.0,
         border_width: RIM,

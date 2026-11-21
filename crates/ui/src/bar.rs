@@ -1,4 +1,6 @@
-//! The bar itself: its ground, and the pills in their three slots.
+//! The bar itself: its ground, and the pills in their three slots. They are
+//! two layers so that a panel can come out between them: over the ground,
+//! from behind its pill.
 
 use crownbar_config::BarPosition;
 use crownui::prelude::{
@@ -14,19 +16,49 @@ use crate::{
 };
 use crownbar_widgets::{Icon, WidgetSlot};
 
-/// The strip, rebuilt whenever the widgets are rearranged. A rebuild leaves the
-/// services and the palette alone; only the pills are made again.
-pub fn bar_strip(bar: Bar) -> impl View {
+/// The bar's ground. A click on bare bar puts away whatever panel is up, the
+/// same way a click anywhere outside it does.
+pub fn bar_ground(bar: Bar) -> impl View {
+    let config = bar.config;
+    along_bar(
+        bar,
+        canvas(move |runtime, size, list| {
+            let ground = Ground::of(&config.get(runtime));
+            backdrop::paint(list, size, bar.palette.get(runtime).bar_fill, ground)
+        })
+        .on_click(move |cx, _| popup::close(cx, bar))
+        .pointer_events_auto(),
+    )
+}
+
+/// The pills, rebuilt whenever the widgets are rearranged. A rebuild leaves
+/// the services and the palette alone; only the pills are made again.
+pub fn bar_pills(bar: Bar) -> impl View {
     keyed(
         move |runtime| bar.layout.get(runtime),
-        move |cx, _| strip(cx, bar),
+        move |cx, _| pills(cx, bar),
     )
     .absolute()
     .inset(0.0)
     .pointer_events_none()
 }
 
-fn strip(cx: &mut Cx, bar: Bar) -> impl View + use<> {
+/// `view` laid along the screen edge the bar sits on, at the bar's size.
+fn along_bar<V: Styled>(bar: Bar, view: V) -> V {
+    let config = bar.config;
+    let margin = move |runtime: &mut Runtime| config.get(runtime).margin as f32;
+    let placed = view
+        .absolute()
+        .left(bind(margin))
+        .right(bind(margin))
+        .h(bind(move |runtime| config.get(runtime).bar_height as f32));
+    match bar.position {
+        BarPosition::Top => placed.top(bind(margin)),
+        BarPosition::Bottom => placed.bottom(bind(margin)),
+    }
+}
+
+fn pills(cx: &mut Cx, bar: Bar) -> impl View + use<> {
     let widgets = bar.state.with(cx, |state| {
         state
             .widgets
@@ -42,31 +74,15 @@ fn strip(cx: &mut Cx, bar: Bar) -> impl View + use<> {
             .map(|(index, (_, id))| (index, id.clone()))
             .collect::<Vec<_>>()
     };
-    let config = bar.config;
-    let margin = move |runtime: &mut Runtime| config.get(runtime).margin as f32;
-    let strip = zstack((
-        // A click on bare bar puts away whatever panel is up, the same way a
-        // click anywhere outside it does.
-        canvas(move |runtime, size, list| {
-            let ground = Ground::of(&config.get(runtime));
-            backdrop::paint(list, size, bar.palette.get(runtime).bar_fill, ground)
-        })
-        .absolute()
-        .inset(0.0)
-        .on_click(move |cx, _| popup::close(cx, bar)),
-        slot_row(bar, WidgetSlot::Left, in_slot(WidgetSlot::Left)),
-        slot_row(bar, WidgetSlot::Center, in_slot(WidgetSlot::Center)),
-        slot_row(bar, WidgetSlot::Right, in_slot(WidgetSlot::Right)),
-    ))
-    .absolute()
-    .left(bind(margin))
-    .right(bind(margin))
-    .h(bind(move |runtime| config.get(runtime).bar_height as f32))
-    .pointer_events_auto();
-    match bar.position {
-        BarPosition::Top => strip.top(bind(margin)),
-        BarPosition::Bottom => strip.bottom(bind(margin)),
-    }
+    along_bar(
+        bar,
+        zstack((
+            slot_row(bar, WidgetSlot::Left, in_slot(WidgetSlot::Left)),
+            slot_row(bar, WidgetSlot::Center, in_slot(WidgetSlot::Center)),
+            slot_row(bar, WidgetSlot::Right, in_slot(WidgetSlot::Right)),
+        ))
+        .pointer_events_none(),
+    )
 }
 
 /// A widget whose hardware is absent takes no space and cannot be hit; it

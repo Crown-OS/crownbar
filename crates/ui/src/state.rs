@@ -37,6 +37,9 @@ pub struct Popup {
     pub shown: Signal<Option<usize>>,
     /// Centre of the pill the panel hangs from, in surface px.
     pub anchor_x: Signal<f32>,
+    /// The pill the panel opens out of, in surface px measured from the
+    /// screen edge the bar sits on.
+    pub source: Signal<kurbo::Rect>,
     /// Which way the panel last travelled to another pill: -1 left, 1 right,
     /// 0 when it was thrown out of its pill instead.
     pub slide: Signal<f32>,
@@ -52,6 +55,9 @@ pub struct Popup {
     pub frame: Signal<Frame>,
     /// Whether anything of the panel is on screen.
     pub present: Signal<bool>,
+    /// Whether the pointer is on the surface, which keeps it at its full
+    /// height so a panel can open without a resize.
+    pub pointer_on_bar: Signal<bool>,
     pub motion: Store<PanelMotion>,
 }
 
@@ -98,12 +104,14 @@ impl Bar {
             owner: cx.signal(None),
             shown: cx.signal(None),
             anchor_x: cx.signal(0.0),
+            source: cx.signal(kurbo::Rect::ZERO),
             slide: cx.signal(0.0),
             content: cx.signal(0),
             height: cx.signal(0.0),
             measured: cx.signal(0.0),
             frame: cx.signal(Frame::default()),
             present: cx.signal(false),
+            pointer_on_bar: cx.signal(false),
             motion: cx.store(PanelMotion::new()),
         };
         Self {
