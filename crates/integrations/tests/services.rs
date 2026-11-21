@@ -372,6 +372,9 @@ fn the_night_light_writes_and_follows_display_ron() {
         return;
     }
     let path = crownos_config::path_for(Display::SECTION);
+    if let Some(config_dir) = path.parent() {
+        std::fs::create_dir_all(config_dir).expect("scratch config directory created");
+    }
     let write_externally = |text: &str| std::fs::write(&path, text).expect("display.ron written");
     let settle = || sleep(Duration::from_millis(500));
 
