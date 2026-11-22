@@ -37,8 +37,8 @@ pub enum Row {
     /// Small muted heading above a group ("Output", "Known Networks").
     Section {
         title: String,
-        /// Draws a disclosure chevron on the right, as macOS does for
-        /// "Other Networks".
+        /// Draws a disclosure chevron on the right, for a heading that
+        /// leads to more.
         chevron: bool,
     },
     /// A device or network: badge, label, and optional trailing detail.
@@ -132,7 +132,7 @@ impl Header {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Item {
     pub icon: Icon,
-    /// Draw the icon inside a filled circle, the way macOS marks a device.
+    /// Draw the icon inside a filled circle.
     /// Plain rows (a bare "Unsecured Network…" line) leave this off.
     pub badge: bool,
     pub label: String,

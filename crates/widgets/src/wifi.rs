@@ -152,7 +152,7 @@ impl WifiWidget {
         for network in networks {
             let item = Item::new(&network.ssid)
                 .icon(Icon::Rune(Rune::Wifi))
-                // macOS flags an open network, and weak ciphers deserve the
+                // An open network is flagged, and weak ciphers deserve the
                 // same warning.
                 .warning(!network.secured || network.weak)
                 .signal(network.strength)
