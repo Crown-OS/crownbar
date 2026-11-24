@@ -144,6 +144,7 @@ fn apply(snapshot: &mut AssistantSnapshot, event: Event) -> bool {
             snapshot.level = 0.0;
         }
         Event::Failure(e) => snapshot.reply = e.message,
+        Event::HotkeyTapped(_) => return false,
     }
     true
 }
